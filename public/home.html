@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mangaku | Manga Admin</title>
+    <link
+      rel="stylesheet"
+      href="/assets/bootstrap-icons/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="/css/styles.css" />
+    <link rel="stylesheet" href="/assets/sweetalert2/sweetalert2.min.css" />
+    <script src="/assets/sweetalert2/sweetalert2.min.js"></script>
+    <script src="/js/core.js" defer></script>
+    <script src="/js/session.js" defer></script>
+    <script src="/js/alerts.js" defer></script>
+    <script src="/js/auth.js" defer></script>
+    <script src="/js/dashboard.js" defer></script>
+  </head>
+  <body class="dashboard-page">
+    <main class="app-shell">
+      <aside id="dashboardSidebar" class="app-sidebar">
+        <div class="sidebar-account">
+          <strong id="currentUserEmail">-</strong>
+          <span id="currentUserRole" class="role-badge">User</span>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Navigasi utama">
+          <button
+            class="nav-button is-active"
+            data-nav-target="overview"
+            type="button">
+            <i class="bi bi-grid-1x2-fill"></i>
+            <span>Beranda</span>
+          </button>
+
+          <button
+            class="nav-button"
+            data-nav-target="favorites"
+            data-user-only
+            type="button">
+            <i class="bi bi-heart-fill"></i>
+            <span>Favorit</span>
+          </button>
+
+          <button
+            class="nav-button"
+            data-nav-target="add-manga"
+            data-manager-only
+            type="button">
+            <i class="bi bi-plus-square-fill"></i>
+            <span>Tambah Manga</span>
+          </button>
+
+          <button
+            class="nav-button"
+            data-nav-target="edit-manga"
+            data-manager-only
+            type="button">
+            <i class="bi bi-pencil-square"></i>
+            <span>Edit Manga</span>
+          </button>
+
+          <button
+            class="nav-button"
+            data-nav-target="database"
+            data-manager-only
+            type="button">
+            <i class="bi bi-database-fill"></i>
+            <span>Manga Database</span>
+          </button>
+
+          <button
+            class="nav-button"
+            data-nav-target="users"
+            data-admin-only
+            type="button">
+            <i class="bi bi-people-fill"></i>
+            <span>Akses User</span>
+          </button>
+
+          <button
+            class="nav-button"
+            data-nav-target="logs"
+            data-manager-only
+            type="button">
+            <i class="bi bi-clock-history"></i>
+            <span>Activity Logs</span>
+          </button>
+
+          <button id="logoutButton" class="nav-button nav-danger" type="button">
+            <i class="bi bi-box-arrow-right"></i>
+            <span>Logout</span>
+          </button>
+        </nav>
+      </aside>
+
+      <section class="app-main">
+        <section id="tab-overview" class="tab-panel is-active">
+          <!-- Dashboard header removed as requested -->
+
+          <article class="card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Katalog</p>
+                <h3>Semua Manga</h3>
+              </div>
+              <span id="catalogCount" class="meta-chip">0 manga</span>
+            </div>
+            <div id="libraryGrid" class="manga-grid"></div>
+          </article>
+        </section>
+
+        <section id="tab-favorites" class="tab-panel" data-user-only>
+          <article class="card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Favorit</p>
+                <h3>Manga Favorit</h3>
+              </div>
+            </div>
+            <div id="favoritesGrid" class="manga-grid"></div>
+          </article>
+        </section>
+
+        <section id="tab-add-manga" class="tab-panel" data-manager-only>
+          <article class="card form-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Tambah Manga</p>
+                <h3>Input Manga Baru</h3>
+              </div>
+            </div>
+
+            <form id="addMangaForm" class="stack-form" novalidate>
+              <input id="addThumbnailUrl" name="thumbnailUrl" type="hidden" />
+
+              <div class="field-grid two-col">
+                <label class="field">
+                  <span>Judul Manga</span>
+                  <input
+                    id="addTitle"
+                    name="title"
+                    type="text"
+                    maxlength="255"
+                    placeholder="Contoh: Blue Lock"
+                    required />
+                </label>
+
+                <label class="field">
+                  <span>Author</span>
+                  <input
+                    id="addAuthor"
+                    name="author"
+                    type="text"
+                    maxlength="255"
+                    placeholder="Contoh: Muneyuki Kaneshiro"
+                    required />
+                </label>
+              </div>
+
+              <div class="field-grid two-col">
+                <label class="field">
+                  <span>Status</span>
+                  <select id="addStatus" name="status" required>
+                    <option value="reading">Berjalan</option>
+                    <option value="completed">Selesai</option>
+                    <option value="to_read">Akan Datang / Hiatus</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Tanggal Rilis</span>
+                  <input id="addPublishedOn" name="publishedOn" type="date" />
+                </label>
+              </div>
+
+              <div class="field">
+                <span>Genre</span>
+                <div id="addGenreOptions" class="genre-picker"></div>
+              </div>
+
+              <label class="field">
+                <span>Deskripsi</span>
+                <textarea
+                  id="addDescription"
+                  name="description"
+                  rows="5"
+                  maxlength="4000"
+                  placeholder="Tulis ringkasan singkat manga."></textarea>
+              </label>
+
+              <label class="field">
+                <span>Thumbnail Cover</span>
+                <input
+                  id="addThumbnail"
+                  name="thumbnail"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif" />
+              </label>
+
+              <div
+                id="addThumbnailPreviewWrap"
+                class="thumbnail-preview"
+                hidden>
+                <img id="addThumbnailPreview" alt="Preview thumbnail manga" />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-button">
+                  Simpan Manga
+                </button>
+                <button
+                  id="resetAddMangaButton"
+                  type="button"
+                  class="secondary-button">
+                  Reset Form
+                </button>
+              </div>
+            </form>
+          </article>
+        </section>
+
+        <section id="tab-edit-manga" class="tab-panel" data-manager-only>
+          <div class="editor-layout">
+            <article class="card">
+              <div class="section-head">
+                <div>
+                  <p class="eyebrow">Edit Manga</p>
+                  <h3>Pilih Manga</h3>
+                </div>
+              </div>
+              <div id="editMangaGallery" class="thumb-gallery"></div>
+            </article>
+
+            <div class="editor-stack">
+              <article class="card form-card">
+                <div class="section-head">
+                  <div>
+                    <p class="eyebrow">Detail Manga</p>
+                    <h3 id="editFormTitle">Edit Data Manga</h3>
+                  </div>
+                  <span id="editSelectedMeta" class="meta-chip"
+                    >Belum dipilih</span
+                  >
+                </div>
+
+                <form id="editMangaForm" class="stack-form" novalidate>
+                  <input id="editBookId" name="bookId" type="hidden" />
+                  <input
+                    id="editThumbnailUrl"
+                    name="thumbnailUrl"
+                    type="hidden" />
+
+                  <div class="field-grid two-col">
+                    <label class="field">
+                      <span>Judul Manga</span>
+                      <input
+                        id="editTitle"
+                        name="title"
+                        type="text"
+                        maxlength="255"
+                        required />
+                    </label>
+
+                    <label class="field">
+                      <span>Author</span>
+                      <input
+                        id="editAuthor"
+                        name="author"
+                        type="text"
+                        maxlength="255"
+                        required />
+                    </label>
+                  </div>
+
+                  <div class="field-grid two-col">
+                    <label class="field">
+                      <span>Status</span>
+                      <select id="editStatus" name="status" required>
+                        <option value="reading">Berjalan</option>
+                        <option value="completed">Selesai</option>
+                        <option value="to_read">Akan Datang / Hiatus</option>
+                      </select>
+                    </label>
+
+                    <label class="field">
+                      <span>Tanggal Rilis</span>
+                      <input
+                        id="editPublishedOn"
+                        name="publishedOn"
+                        type="date" />
+                    </label>
+                  </div>
+
+                  <div class="field">
+                    <span>Genre</span>
+                    <div id="editGenreOptions" class="genre-picker"></div>
+                  </div>
+
+                  <label class="field">
+                    <span>Deskripsi</span>
+                    <textarea
+                      id="editDescription"
+                      name="description"
+                      rows="5"
+                      maxlength="4000"></textarea>
+                  </label>
+
+                  <label class="field">
+                    <span>Thumbnail Cover</span>
+                    <input
+                      id="editThumbnail"
+                      name="thumbnail"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif" />
+                  </label>
+
+                  <div
+                    id="editThumbnailPreviewWrap"
+                    class="thumbnail-preview"
+                    hidden>
+                    <img
+                      id="editThumbnailPreview"
+                      alt="Preview thumbnail manga" />
+                  </div>
+
+                  <div class="form-actions">
+                    <button type="submit" class="primary-button">
+                      Update Manga
+                    </button>
+                    <button
+                      id="resetEditMangaButton"
+                      type="button"
+                      class="secondary-button">
+                      Batalkan Edit
+                    </button>
+                  </div>
+                </form>
+              </article>
+
+              <article class="card form-card">
+                <div class="section-head">
+                  <div>
+                    <p class="eyebrow">Tambah Chapter</p>
+                    <h3 id="chapterFormTitle">Kelola Chapter Manga</h3>
+                  </div>
+                </div>
+
+                <form id="chapterForm" class="stack-form" novalidate>
+                  <input id="chapterId" name="chapterId" type="hidden" />
+                  <input
+                    id="chapterBookId"
+                    name="chapterBookId"
+                    type="hidden" />
+
+                  <div class="field readonly-field">
+                    <span>Manga Aktif</span>
+                    <div id="chapterBookLabel" class="readonly-box">
+                      Pilih manga dari galeri di kiri.
+                    </div>
+                  </div>
+
+                  <div class="field-grid two-col">
+                    <label class="field">
+                      <span>Chapter</span>
+                      <input
+                        id="chapterNumber"
+                        name="chapterNumber"
+                        type="number"
+                        min="1"
+                        inputmode="numeric"
+                        required />
+                    </label>
+
+                    <label class="field">
+                      <span>Tanggal Chapter</span>
+                      <input
+                        id="chapterReleaseDate"
+                        name="releaseDate"
+                        type="date" />
+                    </label>
+                  </div>
+
+                  <label class="field">
+                    <span>Jumlah Panel</span>
+                    <input
+                      id="chapterPageCount"
+                      name="pageCount"
+                      type="number"
+                      min="1"
+                      max="200"
+                      inputmode="numeric"
+                      placeholder="20"
+                      required />
+                  </label>
+
+                  <div id="chapterPageSlots" class="page-slot-grid"></div>
+
+                  <div class="form-actions">
+                    <button type="submit" class="primary-button">
+                      Simpan Chapter
+                    </button>
+                    <button
+                      id="cancelChapterEditButton"
+                      type="button"
+                      class="secondary-button">
+                      Batalkan Edit Chapter
+                    </button>
+                  </div>
+                </form>
+              </article>
+
+              <article class="card">
+                <div class="section-head">
+                  <div>
+                    <p class="eyebrow">Daftar Chapter</p>
+                    <h3>Chapter Manga Aktif</h3>
+                  </div>
+                </div>
+                <div id="editChapterList" class="chapter-list"></div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-database" class="tab-panel" data-manager-only>
+          <article class="card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Manga Database</p>
+                <h3>Kelola dan Hapus Manga</h3>
+              </div>
+            </div>
+            <div id="databaseList" class="database-list"></div>
+          </article>
+        </section>
+
+        <section id="tab-users" class="tab-panel" data-admin-only>
+          <article class="card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">RBAC</p>
+                <h3>Super Admin, Admin, User</h3>
+              </div>
+            </div>
+            <div id="userRoleList" class="user-list"></div>
+          </article>
+        </section>
+
+        <section id="tab-logs" class="tab-panel" data-manager-only>
+          <article class="card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Logging</p>
+                <h3>User, Action, Waktu</h3>
+              </div>
+            </div>
+            <div id="activityLogList" class="log-list"></div>
+          </article>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

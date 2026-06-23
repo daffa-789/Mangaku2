@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Otaku Shelf | Reader Manga</title>
+    <link
+      rel="stylesheet"
+      href="/assets/bootstrap-icons/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="/css/styles.css" />
+    <script src="/js/core.js" defer></script>
+    <script src="/js/session.js" defer></script>
+    <script src="/js/auth.js" defer></script>
+    <script src="/js/read.js" defer></script>
+  </head>
+  <body class="reader-page">
+    <div class="reader-container">
+      <!-- Top Bar -->
+      <header class="reader-header">
+        <div class="reader-header-content">
+          <div class="reader-header-left">
+            <a
+              id="readerDashboardLink"
+              class="reader-header-back"
+              href="/home.html"
+              aria-label="Kembali ke dashboard"
+              title="Kembali ke dashboard">
+              <i class="bi bi-chevron-left" aria-hidden="true"></i>
+            </a>
+            <div class="reader-header-info">
+              <h1 id="readerBookTitle" class="reader-header-title">
+                Loading...
+              </h1>
+            </div>
+          </div>
+
+          <div class="reader-header-right">
+            <button
+              id="readerHeaderToggle"
+              class="reader-header-back"
+              type="button"
+              aria-label="Sembunyikan header"
+              title="Sembunyikan header">
+              <i class="bi bi-chevron-up" aria-hidden="true"></i>
+            </button>
+            <button
+              id="readerRightToggle"
+              class="reader-header-back"
+              type="button"
+              aria-label="Buka sidebar kanan"
+              title="Buka sidebar kanan">
+              <i class="bi bi-list" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="reader-layout">
+        <!-- Right Sidebar -->
+        <aside id="readerRightSidebar" class="reader-right-sidebar">
+          <div class="reader-sidebar-header">
+            <h3>Daftar Chapter</h3>
+            <p id="readerRightChapterMeta" class="reader-right-meta">-</p>
+            <button
+              id="readerRightClose"
+              class="reader-sidebar-close"
+              type="button"
+              aria-label="Tutup sidebar kanan">
+              <i class="bi bi-chevron-right" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="reader-right-content">
+            <section class="reader-right-section">
+              <div
+                id="readerRightChapterList"
+                class="reader-chapter-list"></div>
+            </section>
+          </div>
+        </aside>
+
+        <!-- Main Reader Area -->
+        <main class="reader-main">
+          <article id="readerContent" class="reader-view"></article>
+
+          <!-- Bottom Navigation -->
+          <footer class="reader-footer">
+            <div class="reader-footer-content">
+              <button
+                id="readerPrevButton"
+                class="reader-nav-button"
+                type="button"
+                aria-label="Halaman sebelumnya"
+                title="Sebelumnya atau tekan tombol Panah Kiri">
+                <i class="bi bi-chevron-left" aria-hidden="true"></i>
+              </button>
+
+              <button
+                id="readerNextButton"
+                class="reader-nav-button"
+                type="button"
+                aria-label="Halaman berikutnya"
+                title="Berikutnya atau tekan tombol Panah Kanan">
+                <i class="bi bi-chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+          </footer>
+        </main>
+      </div>
+    </div>
+
+    <button
+      id="readerHeaderRestore"
+      class="reader-header-restore"
+      type="button"
+      aria-label="Tampilkan header"
+      title="Tampilkan header">
+      <i class="bi bi-chevron-down" aria-hidden="true"></i>
+    </button>
+
+    <!-- Mobile Top Bar for Chapter Navigation -->
+    <div id="readerMobileNav" class="reader-mobile-nav">
+      <button
+        id="readerPrevButtonMobile"
+        class="reader-mobile-nav-button"
+        type="button"
+        aria-label="Halaman sebelumnya">
+        <i class="bi bi-chevron-left" aria-hidden="true"></i>
+      </button>
+      <button
+        id="readerNextButtonMobile"
+        class="reader-mobile-nav-button"
+        type="button"
+        aria-label="Halaman berikutnya">
+        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+      </button>
+    </div>
+  </body>
+</html>
