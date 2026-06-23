@@ -22,8 +22,7 @@ function cacheReaderDom() {
     headerRestore: document.getElementById("readerHeaderRestore"),
     prevButton: document.getElementById("readerPrevButton"),
     nextButton: document.getElementById("readerNextButton"),
-    prevButtonMobile: document.getElementById("readerPrevButtonMobile"),
-    nextButtonMobile: document.getElementById("readerNextButtonMobile"),
+    tapZones: Array.from(document.querySelectorAll(".reader-tap-zone")),
   };
 }
 
@@ -179,20 +178,28 @@ function syncNavigationControls() {
     totalPages > 0 && state.currentPageIndex < totalPages - 1;
   const previousHref = !hasPrevInChapter ? getAdjacentChapterHref(-1) : "";
   const nextHref = !hasNextInChapter ? getAdjacentChapterHref(1) : "";
-  const prevButtons = [state.dom?.prevButton, state.dom?.prevButtonMobile];
-  prevButtons.forEach((button) => {
-    const btn = button || null;
-    if (!btn) return;
-    btn.dataset.href = previousHref;
-    btn.disabled = !hasPrevInChapter && !previousHref;
-  });
 
-  const nextButtons = [state.dom?.nextButton, state.dom?.nextButtonMobile];
-  nextButtons.forEach((button) => {
-    const btn = button || null;
-    if (!btn) return;
-    btn.dataset.href = nextHref;
-    btn.disabled = !hasNextInChapter && !nextHref;
+  const prevButton = state.dom?.prevButton;
+  if (prevButton) {
+    prevButton.dataset.href = previousHref;
+    prevButton.disabled = !hasPrevInChapter && !previousHref;
+  }
+
+  const nextButton = state.dom?.nextButton;
+  if (nextButton) {
+    nextButton.dataset.href = nextHref;
+    nextButton.disabled = !hasNextInChapter && !nextHref;
+  }
+
+  // Sync invisible mobile tap zones: stash the href so taps can cross chapters
+  const tapZones = state.dom?.tapZones || [];
+  tapZones.forEach((zone) => {
+    const direction = Number(zone.dataset.tapDirection || 0);
+    if (direction < 0) {
+      zone.dataset.href = hasPrevInChapter ? "" : previousHref;
+    } else if (direction > 0) {
+      zone.dataset.href = hasNextInChapter ? "" : nextHref;
+    }
   });
 }
 
@@ -515,15 +522,36 @@ function attachReaderInteractions() {
 
   [
     state.dom?.prevButton || document.getElementById("readerPrevButton"),
-    state.dom?.prevButtonMobile ||
-      document.getElementById("readerPrevButtonMobile"),
   ].forEach((button) => attachNavButton(button, -1));
 
   [
     state.dom?.nextButton || document.getElementById("readerNextButton"),
-    state.dom?.nextButtonMobile ||
-      document.getElementById("readerNextButtonMobile"),
   ].forEach((button) => attachNavButton(button, 1));
+
+  // Mobile: tap left/right edge of screen to navigate
+  const tapZones = state.dom?.tapZones || [];
+  let lastTapAt = 0;
+  tapZones.forEach((zone) => {
+    const direction = Number(zone.dataset.tapDirection || 0);
+    if (!direction) return;
+
+    const handleTap = async (event) => {
+      // Debounce rapid taps so each tap = one navigation step
+      const now = Date.now();
+      if (now - lastTapAt < 220) return;
+      lastTapAt = now;
+
+      event.stopPropagation();
+      const href = zone.dataset.href;
+      if (href) {
+        await navigateToReader(href);
+        return;
+      }
+      await handleDirectionalNavigation(direction);
+    };
+
+    zone.addEventListener("click", handleTap);
+  });
 
   if (readerContent) {
     readerContent.addEventListener("click", (event) => {

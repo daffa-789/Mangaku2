@@ -37,7 +37,7 @@ const GENRE_OPTIONS = [
 ];
 
 const STATUS_LABELS = {
-  to_read: "Akan Datang / Hiatus",
+  to_read: "Segera",
   reading: "Berjalan",
   completed: "Selesai",
 };
@@ -57,18 +57,9 @@ const state = {
   selectedBookId: null,
   selectedBookDetail: null,
   chapterPageSlots: [],
-  sidebarOpen: false,
   thumbnailPreviewUrls: {
     add: null,
     edit: null,
-  },
-  // Memoization cache for rendered lists
-  memoCache: {
-    catalogGrid: { data: null, hash: null, html: null },
-    favoritesGrid: { data: null, hash: null, html: null },
-    editMangaGallery: { data: null, hash: null, html: null },
-    databaseList: { data: null, hash: null, html: null },
-    editChapterList: { data: null, hash: null, html: null },
   },
 };
 
@@ -156,43 +147,6 @@ function parsePositiveInteger(value) {
 
 function normalizePositiveInteger(value) {
   return window.MangakuCore.normalizePositiveInteger(value);
-}
-
-// ============ Memoization Helpers ============
-function hashData(data) {
-  // Simple hash function for memoization
-  let hash = 0;
-  const str = JSON.stringify(data);
-  for (let i = 0; i < str.length; i += 1) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  return String(hash);
-}
-
-function shouldRerender(cacheKey, data) {
-  const cache = state.memoCache[cacheKey];
-  if (!cache) return true;
-
-  const newHash = hashData(data);
-  if (cache.hash !== newHash) {
-    return true;
-  }
-  return false;
-}
-
-function updateMemoCache(cacheKey, data, html) {
-  if (!state.memoCache[cacheKey]) {
-    state.memoCache[cacheKey] = { data: null, hash: null, html: null };
-  }
-  state.memoCache[cacheKey].data = data;
-  state.memoCache[cacheKey].hash = hashData(data);
-  state.memoCache[cacheKey].html = html;
-}
-
-function getMemoizedHtml(cacheKey) {
-  return state.memoCache[cacheKey]?.html || null;
 }
 
 async function parseJsonResponse(response) {
@@ -579,12 +533,6 @@ function getFirstReadableUrl(book) {
     : null;
 }
 
-function navigateToReader(href) {
-  if (href) {
-    window.location.href = href;
-  }
-}
-
 function getSelectedBookSummary() {
   return state.books.find((book) => book.id === state.selectedBookId) || null;
 }
@@ -658,73 +606,6 @@ function buildMangaCardActions(book, options = {}) {
   return actions.join("");
 }
 
-// Optimized rendering with memoization
-function renderMangaGridOptimized(
-  containerId,
-  books,
-  options = {},
-  cacheKey = null,
-) {
-  const container = document.getElementById(containerId);
-  const emptyMessage =
-    options.emptyMessage || "Belum ada manga yang bisa ditampilkan.";
-
-  if (!container) {
-    return;
-  }
-
-  if (!Array.isArray(books) || books.length === 0) {
-    container.innerHTML = `<p class="empty-state">${emptyMessage}</p>`;
-    return;
-  }
-
-  // Check memoization cache
-  if (cacheKey && !shouldRerender(cacheKey, books)) {
-    const memoizedHtml = getMemoizedHtml(cacheKey);
-    if (memoizedHtml) {
-      container.innerHTML = memoizedHtml;
-      return;
-    }
-  }
-
-  // Generate HTML
-  const html = books
-    .map(
-      (book) => `
-        <article class="manga-card ${
-          state.selectedBookId === book.id ? "is-active" : ""
-        }">
-          <div class="manga-card-cover">
-            ${renderImageWithFallback(
-              book.thumbnailUrl,
-              `Cover ${book.title}`,
-              "Manga",
-            )}
-          </div>
-          <div class="manga-card-copy">
-            <h3>${escapeHtml(book.title)}</h3>
-            <p>${escapeHtml(book.author)}</p>
-            <span>${escapeHtml(getGenreText(book))}</span>
-            <small>${getChapterCount(book)} chapter ${getStatusLabel(
-              book.status,
-            )}</small>
-          </div>
-          <div class="button-row">
-            ${buildMangaCardActions(book, options)}
-          </div>
-        </article>
-      `,
-    )
-    .join("");
-
-  container.innerHTML = html;
-
-  // Update memoization cache
-  if (cacheKey) {
-    updateMemoCache(cacheKey, books, html);
-  }
-}
-
 function renderMangaGrid(containerId, books, options = {}) {
   const container = document.getElementById(containerId);
   const emptyMessage =
@@ -767,72 +648,6 @@ function renderMangaGrid(containerId, books, options = {}) {
       `,
     )
     .join("");
-}
-
-function renderSelectedMangaPanel() {
-  const container = document.getElementById("selectedMangaPanel");
-  const book = state.selectedBookDetail;
-
-  if (!container) {
-    return;
-  }
-
-  if (!book) {
-    container.innerHTML =
-      '<p class="empty-state">Pilih manga dari katalog untuk melihat detail lengkapnya.</p>';
-    return;
-  }
-
-  const readUrl = getFirstReadableUrl(book);
-  const actions = [
-    readUrl
-      ? `<a class="primary-button" href="${readUrl}">mangaku</a>`
-      : `<button type="button" class="secondary-button" disabled>Belum Ada Chapter</button>`,
-  ];
-
-  if (isRegularUser()) {
-    actions.push(
-      `<button
-        type="button"
-        class="secondary-button"
-        data-action="toggle-favorite"
-        data-book-id="${book.id}"
-        data-next-favorite="${!book.isFavorite}">
-        ${book.isFavorite ? "Hapus Favorit" : "Tambah Favorit"}
-      </button>`,
-    );
-  }
-
-  // Edit Manga button removed per user request
-
-  container.innerHTML = `
-    <div class="selected-cover">
-      ${renderImageWithFallback(book.thumbnailUrl, `Cover ${book.title}`, "Manga")}
-    </div>
-    <div class="selected-copy">
-      <div class="chip-row">
-        <span class="meta-chip">${getStatusLabel(book.status)}</span>
-        <span class="meta-chip">${getChapterCount(book)} chapter</span>
-        ${
-          isRegularUser()
-            ? `<span class="meta-chip">${book.isFavorite ? "Sudah favorit" : "Belum favorit"}</span>`
-            : ""
-        }
-      </div>
-      <h3>${escapeHtml(book.title)}</h3>
-      <p class="page-copy">${escapeHtml(book.author)}</p>
-      <p class="page-copy">${escapeHtml(getGenreText(book))}</p>
-      <p class="selected-description">
-        ${escapeHtml(book.description || "Belum ada deskripsi manga.")}
-      </p>
-      <div class="chip-row">
-        <span class="meta-chip">Rilis: ${escapeHtml(formatDate(book.publishedOn))}</span>
-      </div>
-      <div class="button-row">
-        ${actions.join("")}
-      </div>
-    </div>
-  `;
 }
 
 function buildChapterRow(chapter, options = {}) {
@@ -880,41 +695,6 @@ function buildChapterRow(chapter, options = {}) {
   `;
 }
 
-function renderEditChapterListOptimized() {
-  const container = document.getElementById("editChapterList");
-  const chapters = state.selectedBookDetail?.chapters || [];
-  const cacheKey = "editChapterList";
-
-  if (!container) {
-    return;
-  }
-
-  if (chapters.length === 0) {
-    container.innerHTML =
-      '<p class="empty-state">Belum ada chapter untuk manga aktif.</p>';
-    return;
-  }
-
-  // Check memoization cache
-  if (!shouldRerender(cacheKey, chapters)) {
-    const memoizedHtml = getMemoizedHtml(cacheKey);
-    if (memoizedHtml) {
-      container.innerHTML = memoizedHtml;
-      return;
-    }
-  }
-
-  // Generate HTML
-  const html = chapters
-    .map((chapter) => buildChapterRow(chapter, { manage: true }))
-    .join("");
-
-  container.innerHTML = html;
-
-  // Update memoization cache
-  updateMemoCache(cacheKey, chapters, html);
-}
-
 function renderEditChapterList() {
   const container = document.getElementById("editChapterList");
   const chapters = state.selectedBookDetail?.chapters || [];
@@ -932,105 +712,6 @@ function renderEditChapterList() {
   container.innerHTML = chapters
     .map((chapter) => buildChapterRow(chapter, { manage: true }))
     .join("");
-}
-
-// Chapter picker modal: open UI to choose a chapter before navigating
-async function openChapterPicker(bookId) {
-  const existing = document.getElementById("otaku-chapter-picker");
-  if (existing) {
-    existing.remove();
-  }
-
-  // Prefer the fully-loaded selectedBookDetail (which includes chapters).
-  // Fallback to state.books (lightweight) only if necessary, and fetch
-  // full book detail when chapters are not available.
-  let book = null;
-  if (state.selectedBookDetail && state.selectedBookDetail.id === bookId) {
-    book = state.selectedBookDetail;
-  } else {
-    book = state.books.find((b) => b.id === bookId) || null;
-  }
-
-  if (typeof Swal === "undefined") {
-    showFeedback("Popup chapter belum siap dimuat.", "error");
-    return;
-  }
-
-  // If we don't have chapters locally, fetch the full book detail.
-  if (!book || !Array.isArray(book.chapters) || book.chapters.length === 0) {
-    try {
-      Swal.fire({
-        title: "Memuat chapter",
-        html: '<p class="empty-state">Mohon tunggu sebentar...</p>',
-        allowOutsideClick: false,
-        allowEscapeKey: false,
-        showConfirmButton: false,
-        didOpen: () => {
-          Swal.showLoading();
-        },
-      });
-
-      const result = await requestJson("GET", `${BOOKS_ENDPOINT}/${bookId}`);
-      book = result.data;
-    } catch (err) {
-      Swal.close();
-      await Swal.fire({
-        icon: "error",
-        title: "Gagal",
-        text: "Gagal memuat daftar chapter.",
-      });
-      return;
-    }
-  }
-
-  const chapters = Array.isArray(book.chapters) ? book.chapters : [];
-
-  const chapterHtml =
-    chapters.length === 0
-      ? '<p class="empty-state">Belum ada chapter.</p>'
-      : `<div class="chapter-picker-list">
-        ${chapters
-          .map((ch) => {
-            const readerUrl = getReaderUrl(book, ch.chapterNumber, 1);
-            return `
-              <button
-                type="button"
-                class="picker-row"
-                data-href="${escapeHtml(readerUrl || "")}">
-                <strong>Chapter ${ch.chapterNumber}</strong>
-                <span>${escapeHtml(formatDate(ch.releaseDate))}</span>
-              </button>
-            `;
-          })
-          .join("")}
-      </div>`;
-
-  await Swal.fire({
-    title: `Pilih Chapter - ${escapeHtml(book.title || "")}`,
-    html: chapterHtml,
-    width: 600,
-    showCloseButton: true,
-    showConfirmButton: false,
-    focusConfirm: false,
-    allowOutsideClick: true,
-    allowEscapeKey: true,
-    customClass: {
-      popup: "chapter-picker-swal",
-      htmlContainer: "chapter-picker-swal-body",
-    },
-    didOpen: (popup) => {
-      popup.querySelectorAll(".picker-row").forEach((button) => {
-        button.addEventListener("click", async () => {
-          const href = button.dataset.href;
-          Swal.close();
-
-          if (href) {
-            await navigateToReader(href);
-          }
-        });
-      });
-    },
-  });
 }
 
 function renderFavoritesGrid() {
@@ -1529,7 +1210,6 @@ async function refreshDashboard(options = {}) {
 
 function renderAll() {
   renderCatalogCount();
-  // renderSelectedMangaPanel(); // Section removed
   renderMangaGrid("libraryGrid", state.books, { showManageActions: true });
   renderFavoritesGrid();
   renderEditMangaGallery();
@@ -1849,8 +1529,6 @@ function attachNavigation() {
 
 function attachGlobalActions() {
   document.body.addEventListener("click", async (event) => {
-    // (no interception for per-chapter read links - they should navigate directly)
-
     const actionElement = event.target.closest("[data-action]");
 
     if (!actionElement) {
@@ -1861,18 +1539,6 @@ function attachGlobalActions() {
     const bookId = parsePositiveInteger(actionElement.dataset.bookId);
     const chapterId = parsePositiveInteger(actionElement.dataset.chapterId);
     const userId = parsePositiveInteger(actionElement.dataset.userId);
-
-    if (action === "open-chapter-picker" && bookId) {
-      console.log(
-        "[DEBUG] Button Baca clicked! bookId:",
-        bookId,
-        "action:",
-        action,
-      );
-      event.preventDefault();
-      await openChapterPicker(bookId);
-      return;
-    }
 
     if (action === "select-book" && bookId) {
       await selectBook(bookId);
