@@ -8,6 +8,7 @@ import { initDb } from './scripts/initDb.js';
 import authRoutes from './routes/auth.js';
 import loginRoutes from './routes/auth-login.js';
 import readerRoutes from './routes/reader.js';
+import booksRoutes from './routes/books.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,6 +39,10 @@ app.use('/assets/sweetalert2', express.static(sweetalert2Dir));
 app.use(express.static(publicDir));
 
 app.get('/', (req, res) => {
+  res.sendFile(path.join(publicDir, 'home.html'));
+});
+
+app.get('/home.html', (req, res) => {
   res.sendFile(path.join(publicDir, 'home.html'));
 });
 

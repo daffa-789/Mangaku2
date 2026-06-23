@@ -9,6 +9,7 @@
       href="/assets/bootstrap-icons/bootstrap-icons.min.css" />
     <link rel="stylesheet" href="/css/styles.css" />
     <link rel="stylesheet" href="/assets/sweetalert2/sweetalert2.min.css" />
+    <link rel="stylesheet" href="../node_modules/bootstrap-icons/font/bootstrap-icons.css" />
     <script src="/assets/sweetalert2/sweetalert2.min.js"></script>
     <script src="/js/core.js" defer></script>
     <script src="/js/session.js" defer></script>
@@ -135,7 +136,7 @@
               <input id="addThumbnailUrl" name="thumbnailUrl" type="hidden" />
 
               <div class="field-grid two-col">
-                <label class="field">
+                <label class="field-grid">
                   <span>Judul Manga</span>
                   <input
                     id="addTitle"
@@ -146,7 +147,7 @@
                     required />
                 </label>
 
-                <label class="field">
+                <label class="field-grid">
                   <span>Author</span>
                   <input
                     id="addAuthor"
@@ -159,7 +160,7 @@
               </div>
 
               <div class="field-grid two-col">
-                <label class="field">
+                <label class="field-grid">
                   <span>Status</span>
                   <select id="addStatus" name="status" required>
                     <option value="reading">Berjalan</option>
@@ -168,18 +169,18 @@
                   </select>
                 </label>
 
-                <label class="field">
+                <label class="field-grid">
                   <span>Tanggal Rilis</span>
                   <input id="addPublishedOn" name="publishedOn" type="date" />
                 </label>
               </div>
 
-              <div class="field">
+              <div class="field-grid">
                 <span>Genre</span>
                 <div id="addGenreOptions" class="genre-picker"></div>
               </div>
 
-              <label class="field">
+              <label class="field-grid">
                 <span>Deskripsi</span>
                 <textarea
                   id="addDescription"
@@ -189,7 +190,7 @@
                   placeholder="Tulis ringkasan singkat manga."></textarea>
               </label>
 
-              <label class="field">
+              <label class="field-grid">
                 <span>Thumbnail Cover</span>
                 <input
                   id="addThumbnail"
@@ -252,7 +253,7 @@
                     type="hidden" />
 
                   <div class="field-grid two-col">
-                    <label class="field">
+                    <label class="field-grid">
                       <span>Judul Manga</span>
                       <input
                         id="editTitle"
@@ -262,7 +263,7 @@
                         required />
                     </label>
 
-                    <label class="field">
+                    <label class="field-grid">
                       <span>Author</span>
                       <input
                         id="editAuthor"
@@ -274,7 +275,7 @@
                   </div>
 
                   <div class="field-grid two-col">
-                    <label class="field">
+                    <label class="field-grid">
                       <span>Status</span>
                       <select id="editStatus" name="status" required>
                         <option value="reading">Berjalan</option>
@@ -283,7 +284,7 @@
                       </select>
                     </label>
 
-                    <label class="field">
+                    <label class="field-grid">
                       <span>Tanggal Rilis</span>
                       <input
                         id="editPublishedOn"
@@ -292,12 +293,12 @@
                     </label>
                   </div>
 
-                  <div class="field">
+                  <div class="field-grid">
                     <span>Genre</span>
                     <div id="editGenreOptions" class="genre-picker"></div>
                   </div>
 
-                  <label class="field">
+                  <label class="field-grid">
                     <span>Deskripsi</span>
                     <textarea
                       id="editDescription"
@@ -306,7 +307,7 @@
                       maxlength="4000"></textarea>
                   </label>
 
-                  <label class="field">
+                  <label class="field-grid">
                     <span>Thumbnail Cover</span>
                     <input
                       id="editThumbnail"
@@ -353,7 +354,7 @@
                     name="chapterBookId"
                     type="hidden" />
 
-                  <div class="field readonly-field">
+                  <div class="field-grid readonly-field">
                     <span>Manga Aktif</span>
                     <div id="chapterBookLabel" class="readonly-box">
                       Pilih manga dari galeri di kiri.
@@ -361,7 +362,7 @@
                   </div>
 
                   <div class="field-grid two-col">
-                    <label class="field">
+                    <label class="field-grid">
                       <span>Chapter</span>
                       <input
                         id="chapterNumber"
@@ -372,7 +373,7 @@
                         required />
                     </label>
 
-                    <label class="field">
+                    <label class="field-grid">
                       <span>Tanggal Chapter</span>
                       <input
                         id="chapterReleaseDate"
@@ -381,7 +382,7 @@
                     </label>
                   </div>
 
-                  <label class="field">
+                  <label class="field-grid">
                     <span>Jumlah Panel</span>
                     <input
                       id="chapterPageCount"
