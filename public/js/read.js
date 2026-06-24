@@ -1,5 +1,4 @@
 const READER_ENDPOINT = "/api/reader/manga";
-const BOOKS_ENDPOINT = "/api/books";
 const MIN_SESSION_SECONDS = 5;
 
 const state = {
@@ -442,7 +441,7 @@ async function flushReadingSession(options = {}) {
   };
 
   try {
-    const response = await fetch(BOOKS_ENDPOINT, {
+    const response = await fetch(`/api/books/${state.session.bookId}/reading-sessions`, {
       method: "POST",
       headers: getAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),

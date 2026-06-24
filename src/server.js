@@ -6,7 +6,6 @@ import cors from 'cors';
 import { pool, checkDatabaseConnection } from './config/db.js';
 import { initDb } from './scripts/initDb.js';
 import authRoutes from './routes/auth.js';
-import loginRoutes from './routes/auth-login.js';
 import readerRoutes from './routes/reader.js';
 import booksRoutes from './routes/books.js';
 
@@ -63,7 +62,6 @@ app.get('/api', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
-app.use('/api/auth', loginRoutes);
 app.use('/api/books', booksRoutes);
 app.use('/api/reader', readerRoutes);
 
