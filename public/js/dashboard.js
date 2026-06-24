@@ -1301,9 +1301,13 @@ async function handleEditMangaSubmit(event) {
 
   try {
     if (thumbnailFile) {
+      // Upload thumbnail using the current (old) title so the file lands
+      // in the existing folder. The server will rename the folder afterwards.
+      const currentBook = state.selectedBookDetail;
+      const folderTitle = currentBook?.title || payload.title;
       payload.thumbnailUrl = await uploadThumbnail(
         thumbnailFile,
-        payload.title,
+        folderTitle,
       );
       document.getElementById("editThumbnailUrl").value = payload.thumbnailUrl;
     }

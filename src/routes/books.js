@@ -1712,6 +1712,44 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+function renameMangaFolder(oldTitle, newTitle) {
+  const oldFolderName = sanitizeFolderName(oldTitle);
+  const newFolderName = sanitizeFolderName(newTitle);
+
+  if (oldFolderName === newFolderName) {
+    return false;
+  }
+
+  const oldFolderPath = path.join(publicUploadDir, oldFolderName);
+  const newFolderPath = path.join(publicUploadDir, newFolderName);
+
+  if (!fs.existsSync(oldFolderPath)) {
+    return false;
+  }
+
+  // If the new folder already exists, remove it first to avoid conflicts
+  if (fs.existsSync(newFolderPath)) {
+    fs.rmSync(newFolderPath, { recursive: true, force: true });
+  }
+
+  fs.renameSync(oldFolderPath, newFolderPath);
+  return true;
+}
+
+function buildUrlReplacement(oldTitle, newTitle) {
+  const oldPrefix = `/uploads/${sanitizeFolderName(oldTitle)}/`;
+  const newPrefix = `/uploads/${sanitizeFolderName(newTitle)}/`;
+
+  return { oldPrefix, newPrefix };
+}
+
+function replaceUrlPrefix(url, replacement) {
+  if (typeof url !== "string" || !url.startsWith(replacement.oldPrefix)) {
+    return url;
+  }
+  return replacement.newPrefix + url.slice(replacement.oldPrefix.length);
+}
+
 router.put("/:id", async (req, res) => {
   if (!requireCatalogManager(req, res)) {
     return;
@@ -1741,6 +1779,7 @@ router.put("/:id", async (req, res) => {
 
   const connection = await pool.getConnection();
   let existingBook = null;
+  let folderRenamed = false;
 
   try {
     await connection.beginTransaction();
@@ -1759,6 +1798,21 @@ router.put("/:id", async (req, res) => {
       excludeBookId: bookId,
     });
 
+    // Rename folder if title changed
+    const titleChanged = payload.title !== existingBook.title;
+    let urlReplacement = null;
+
+    if (titleChanged) {
+      folderRenamed = renameMangaFolder(existingBook.title, payload.title);
+      urlReplacement = buildUrlReplacement(existingBook.title, payload.title);
+    }
+
+    // Update thumbnail URL to match new folder name
+    let finalThumbnailUrl = payload.thumbnailUrl || null;
+    if (urlReplacement && finalThumbnailUrl) {
+      finalThumbnailUrl = replaceUrlPrefix(finalThumbnailUrl, urlReplacement);
+    }
+
     await connection.query(
       `UPDATE books
        SET title = ?,
@@ -1775,7 +1829,7 @@ router.put("/:id", async (req, res) => {
         slug,
         payload.author,
         serializeGenreList(payload.genres),
-        payload.thumbnailUrl || null,
+        finalThumbnailUrl,
         payload.description || null,
         payload.publishedOn,
         payload.status,
@@ -1783,10 +1837,48 @@ router.put("/:id", async (req, res) => {
       ],
     );
 
+    // Update chapter preview image URLs to match new folder name
+    if (urlReplacement) {
+      const [previewRows] = await connection.query(
+        "SELECT id, preview_image_url AS previewImageUrl FROM chapters WHERE book_id = ?",
+        [bookId],
+      );
+
+      for (const row of previewRows) {
+        const newUrl = replaceUrlPrefix(row.previewImageUrl, urlReplacement);
+        if (newUrl !== row.previewImageUrl) {
+          await connection.query(
+            "UPDATE chapters SET preview_image_url = ? WHERE id = ?",
+            [newUrl, row.id],
+          );
+        }
+      }
+
+      // Update chapter page image URLs to match new folder name
+      const [pageRows] = await connection.query(
+        `SELECT cp.id, cp.image_url AS imageUrl
+         FROM chapter_pages cp
+         INNER JOIN chapters c ON c.id = cp.chapter_id
+         WHERE c.book_id = ?`,
+        [bookId],
+      );
+
+      for (const row of pageRows) {
+        const newUrl = replaceUrlPrefix(row.imageUrl, urlReplacement);
+        if (newUrl !== row.imageUrl) {
+          await connection.query(
+            "UPDATE chapter_pages SET image_url = ? WHERE id = ?",
+            [newUrl, row.id],
+          );
+        }
+      }
+    }
+
+    // Clean up old thumbnail only if it was replaced (not renamed)
     if (
-      payload.thumbnailUrl &&
+      finalThumbnailUrl &&
       existingBook.thumbnailUrl &&
-      payload.thumbnailUrl !== existingBook.thumbnailUrl
+      finalThumbnailUrl !== existingBook.thumbnailUrl
     ) {
       deleteManagedFiles([existingBook.thumbnailUrl]);
     }
@@ -1815,13 +1907,9 @@ router.put("/:id", async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
-    // Cleanup new thumbnail if book update failed
-    if (
-      payload.thumbnailUrl &&
-      existingBook &&
-      payload.thumbnailUrl !== existingBook.thumbnailUrl
-    ) {
-      deleteManagedFiles([payload.thumbnailUrl]);
+    // Revert folder rename on failure
+    if (folderRenamed && existingBook) {
+      renameMangaFolder(payload.title, existingBook.title);
     }
     console.error("Update manga error:", error.message);
     return res.status(500).json({
