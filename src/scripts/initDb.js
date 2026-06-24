@@ -22,6 +22,19 @@ const BOOTSTRAP_SUPER_ADMIN_EMAILS = [
   ),
 ];
 
+function parseLegacyChapterNumber(label, fallback) {
+  if (!label) return Number(fallback) || 1;
+
+  const str = String(label).trim();
+
+  const numberMatch = str.match(/(\d+(?:\.\d+)?)/);
+  if (numberMatch) {
+    return Number(numberMatch[1]);
+  }
+
+  return Number(fallback) || 1;
+}
+
 async function ensureColumn(connection, tableName, columnName, definition) {
   const [rows] = await connection.query(
     `SELECT COLUMN_NAME

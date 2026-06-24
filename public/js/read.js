@@ -320,14 +320,7 @@ function renderReader(data) {
     .join("");
 
   if (rightChapterMeta) {
-    const chapterCount = Array.isArray(data.chapters)
-      ? data.chapters.length
-      : 0;
-    const currentChapter = Number(data?.chapter?.chapterNumber || 0);
-    rightChapterMeta.textContent =
-      chapterCount > 0
-        ? `Total ${chapterCount} chapter • Sekarang Chapter ${currentChapter || 1}`
-        : "0 chapter";
+    rightChapterMeta.textContent = "";
   }
 
   if (rightChapterList) {

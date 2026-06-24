@@ -36,6 +36,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/assets/bootstrap-icons', express.static(bootstrapIconsDir));
 app.use('/assets/sweetalert2', express.static(sweetalert2Dir));
+
+// HTML pages reference icons via /node_modules/bootstrap-icons/...
+// Serve them at that path so all <link>/<script> tags resolve correctly.
+const nodeModulesDir = path.join(__dirname, '..', 'node_modules');
+app.use('/node_modules', express.static(nodeModulesDir));
+
 app.use(express.static(publicDir));
 
 app.get('/', (req, res) => {

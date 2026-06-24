@@ -321,7 +321,7 @@ body.dashboard-page {
 }
 
 .app-sidebar {
-  width: 250px;
+  width: 200px;
   background: #111827;
   border-right: 1px solid var(--gray-700);
   display: flex;
@@ -1273,34 +1273,16 @@ body.reader-nav-visible.reader-header-collapsed .reader-header {
   right: 0;
 }
 
-/* Tablet (<=1100px) */
-@media (max-width: 1100px) {
-  body.reader-page {
-    --reader-header-height: 64px;
-    --reader-footer-height: 64px;
-    --reader-image-max-width: 860px;
-  }
-
-  .reader-right-sidebar {
-    width: min(92vw, 420px);
-  }
-
-  .reader-layout {
-    padding: calc(var(--reader-header-height) + 1rem) 1rem
-      calc(var(--reader-footer-height) + 1rem);
-  }
-
-  .reader-header-title {
-    font-size: 1.05rem;
-  }
-
-  .reader-right-sidebar {
-    height: calc(100vh - var(--reader-header-height) - 0.75rem);
-  }
+/* HP (<=500px) */
+@media (max-width: 500px) {
+.reader-right-sidebar{
+  width: 240px;
 }
 
-/* HP (<=640px) */
-@media (max-width: 640px) {
+  .app-sidebar{
+    width: 160px;
+  }
+
   body.reader-page {
     --reader-header-height: 58px;
     --reader-footer-height: 72px;
