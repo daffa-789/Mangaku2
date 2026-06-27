@@ -12,28 +12,41 @@ const ALLOWED_IMAGE_TYPES = new Set([
   "image/gif",
 ]);
 
+// HARUS tetap sinkron dengan `BOOK_GENRES` di `src/routes/books-validation.js`.
 const GENRE_OPTIONS = [
- 
   { value: "action", label: "Action" },
   { value: "adventure", label: "Adventure" },
   { value: "comedy", label: "Comedy" },
+  { value: "demons", label: "Demons" },
   { value: "drama", label: "Drama" },
   { value: "fantasy", label: "Fantasy" },
+  { value: "game", label: "Game" },
+  { value: "gore", label: "Gore" },
+  { value: "harem", label: "Harem" },
   { value: "historical", label: "Historical" },
   { value: "horror", label: "Horror" },
   { value: "isekai", label: "Isekai" },
+  { value: "josei", label: "Josei" },
+  { value: "magic", label: "Magic" },
+  { value: "martial_arts", label: "Martial Arts" },
+  { value: "mature", label: "Mature" },
+  { value: "mecha", label: "Mecha" },
+  { value: "military", label: "Military" },
+  { value: "music", label: "Music" },
   { value: "mystery", label: "Mystery" },
+  { value: "parody", label: "Parody" },
   { value: "psychological", label: "Psychological" },
   { value: "romance", label: "Romance" },
   { value: "school", label: "School" },
   { value: "sci_fi", label: "Sci-Fi" },
+  { value: "seinen", label: "Seinen" },
+  { value: "shoujo", label: "Shoujo" },
+  { value: "shounen", label: "Shounen" },
   { value: "slice_of_life", label: "Slice of Life" },
   { value: "sports", label: "Sports" },
   { value: "supernatural", label: "Supernatural" },
   { value: "thriller", label: "Thriller" },
-  { value: "harem", label: "Harem" },
-  { value: "mecha", label: "Mecha" },
-  { value: "seinen", label: "Seinen" },
+  { value: "vampire", label: "Vampire" },
 ];
 
 const STATUS_LABELS = {
@@ -87,7 +100,8 @@ function canManageUsers(user = state.currentUser) {
 }
 
 function canViewLogs(user = state.currentUser) {
-  return isSuperAdminUser(user);
+  // Samakan dengan backend: GET/DELETE /api/auth/logs butuh role admin+ (bukan super-only).
+  return canManageCatalog(user);
 }
 
 function getRoleLabel(role) {
@@ -1661,7 +1675,8 @@ async function initDashboardPage() {
   }
 
   try {
-    await window.MangakuSession.refreshCurrentUserSession();
+    // Session sudah di-refresh oleh auth.js (DOMContentLoaded).
+    // Tidak perlu refresh lagi di sini — menghindari API /api/auth/me dipanggil 2x.
   } catch (error) {
     console.warn("Dashboard session refresh warning:", error.message);
   }

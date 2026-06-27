@@ -228,20 +228,28 @@ async function backfillPages(connection) {
      ORDER BY chapter_id ASC, page_number ASC, id ASC`,
   );
 
-  let currentChapterId = null;
-  let pageNumber = 0;
+  // Hitung page_number per chapter di memori, lalu update sekali pakai CASE WHEN.
+  if (pageRows.length > 0) {
+    let currentChapterId = null;
+    let pageNumber = 0;
+    const assignments = [];
 
-  for (const row of pageRows) {
-    if (row.chapterId !== currentChapterId) {
-      currentChapterId = row.chapterId;
-      pageNumber = 1;
-    } else {
-      pageNumber += 1;
+    for (const row of pageRows) {
+      const safeId = Number(row.id);
+      if (row.chapterId !== currentChapterId) {
+        currentChapterId = row.chapterId;
+        pageNumber = 1;
+      } else {
+        pageNumber += 1;
+      }
+      assignments.push(`WHEN ${safeId} THEN ${pageNumber}`);
     }
 
+    const ids = pageRows.map((row) => Number(row.id)).join(",");
     await connection.query(
-      "UPDATE chapter_pages SET page_number = ? WHERE id = ?",
-      [pageNumber, row.id],
+      `UPDATE chapter_pages
+       SET page_number = CASE id ${assignments.join(' ')} END
+       WHERE id IN (${ids})`,
     );
   }
 

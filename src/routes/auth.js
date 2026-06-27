@@ -5,6 +5,7 @@ import {
   normalizeEmail,
   normalizeRole,
   hasMinimumRole,
+  isValidRole,
   getUserById,
   resolveRequestUser,
   buildAuthUserPayload,
@@ -23,6 +24,13 @@ import { withTransaction } from "../utils/database.js";
 const router = express.Router();
 
 const MIN_PASSWORD_LENGTH = 6;
+
+// Error code konstan — hindari typo string literal (AUDIT 7.10).
+const ERROR_CODES = {
+  EMAIL_EXISTS: "EMAIL_EXISTS",
+  USER_NOT_FOUND: "USER_NOT_FOUND",
+  LAST_SUPER_ADMIN: "LAST_SUPER_ADMIN",
+};
 const BOOTSTRAP_SUPER_ADMIN_EMAILS = new Set(
   String(
     process.env.BOOTSTRAP_SUPER_ADMIN_EMAILS ||
@@ -61,11 +69,11 @@ function parseCredentials(body = {}) {
   return { data: result.data, error: null };
 }
 
+// Memvalidasi role mentah dari request tanpa coercion. normalizeRole() saja
+// tidak cukup karena ia memaksa nilai invalid menjadi "user", sehingga input
+// role ilegal (mis. "hacker") akan diam-diam diterima sebagai "user".
 function parseRole(value) {
-  const normalized = normalizeRole(value);
-  return ["user", "admin", "super_admin"].includes(normalized)
-    ? normalized
-    : null;
+  return isValidRole(value) ? normalizeRole(value) : null;
 }
 
 async function requireMinimumRole(req, res, minimumRole) {
@@ -147,7 +155,7 @@ router.post("/register", async (req, res) => {
         [email],
       );
       if (existingUsers.length > 0) {
-        throw new Error("EMAIL_EXISTS");
+        throw new Error(ERROR_CODES.EMAIL_EXISTS);
       }
 
       const [superAdminCountRows] = await connection.query(
@@ -181,7 +189,7 @@ router.post("/register", async (req, res) => {
       201,
     );
   } catch (error) {
-    if (error.message === "EMAIL_EXISTS") {
+    if (error.message === ERROR_CODES.EMAIL_EXISTS) {
       return errorResponse(res, "Email sudah terdaftar.", 409);
     }
     return serverErrorResponse(res, error);
@@ -323,14 +331,14 @@ router.delete("/users/:id", async (req, res) => {
         [targetUserId],
       );
       const targetUser = targetRows[0];
-      if (!targetUser) throw new Error("USER_NOT_FOUND");
+      if (!targetUser) throw new Error(ERROR_CODES.USER_NOT_FOUND);
 
       if (normalizeRole(targetUser.role) === "super_admin") {
         const [countRows] = await connection.query(
           "SELECT COUNT(*) AS count FROM users WHERE role = 'super_admin'",
         );
         if (Number(countRows[0]?.count || 0) <= 1) {
-          throw new Error("LAST_SUPER_ADMIN");
+          throw new Error(ERROR_CODES.LAST_SUPER_ADMIN);
         }
       }
 
@@ -352,10 +360,10 @@ router.delete("/users/:id", async (req, res) => {
       role: normalizeRole(result.role),
     });
   } catch (error) {
-    if (error.message === "USER_NOT_FOUND") {
+    if (error.message === ERROR_CODES.USER_NOT_FOUND) {
       return notFoundResponse(res, "User tidak ditemukan.");
     }
-    if (error.message === "LAST_SUPER_ADMIN") {
+    if (error.message === ERROR_CODES.LAST_SUPER_ADMIN) {
       return errorResponse(res, "Tidak bisa menghapus super admin terakhir.");
     }
     return serverErrorResponse(res, error);

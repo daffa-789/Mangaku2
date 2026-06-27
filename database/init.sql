@@ -1,3 +1,7 @@
+-- ⚠️ FILE KEDALUARSA — HANYA REFERENSI AWAL.
+-- Skema sekarang dikelola oleh `src/scripts/initDb.js` (otomatis saat server start).
+-- Jalankan `npm run db:init` untuk inisialisasi database, jangan pakai file ini langsung.
+
 USE mangaku;
 
 CREATE TABLE IF NOT EXISTS users (

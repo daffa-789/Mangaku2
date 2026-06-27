@@ -13,13 +13,3 @@ export async function withTransaction(pool, callback) {
     connection.release();
   }
 }
-
-// Helper untuk query dengan error handling
-export async function safeQuery(connectionOrPool, sql, params = []) {
-  try {
-    return await connectionOrPool.query(sql, params);
-  } catch (error) {
-    console.error('Query error:', error.message);
-    throw error;
-  }
-}

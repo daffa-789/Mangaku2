@@ -7,6 +7,7 @@ import {
   serverErrorResponse,
   parsePositiveInteger,
 } from '../utils/response.js';
+import { addCacheBuster } from '../utils/url.js';
 
 const router = express.Router();
 
@@ -16,12 +17,6 @@ function createReaderNotFoundResponse(message) {
     code: 'READER_NOT_FOUND',
     message,
   };
-}
-
-function addCacheBuster(url, version) {
-  if (!url) return url;
-  const separator = String(url).includes('?') ? '&' : '?';
-  return `${url}${separator}v=${encodeURIComponent(String(version || '0'))}`;
 }
 
 // Middleware: Require authentication
@@ -109,46 +104,6 @@ router.get('/manga/:slug/:chapter/:page', async (req, res) => {
     }
 
     const activePage = pageRows[activePageIndex];
-    const previousChapter = chapterRows[activeChapterIndex - 1] || null;
-    const nextChapter = chapterRows[activeChapterIndex + 1] || null;
-
-    // Calculate previous page
-    const previousPage =
-      pageRows[activePageIndex - 1]
-        ? {
-            chapterId: activeChapter.id,
-            chapterNumber: Number(activeChapter.chapterNumber),
-            pageNumber: Number(pageRows[activePageIndex - 1].pageNumber),
-          }
-        : previousChapter && Number(previousChapter.pageCount) > 0
-          ? {
-              chapterId: previousChapter.id,
-              chapterNumber: Number(previousChapter.chapterNumber),
-              pageNumber: Number(previousChapter.pageCount),
-            }
-          : null;
-
-    // Calculate next page
-    const nextPage =
-      pageRows[activePageIndex + 1]
-        ? {
-            chapterId: activeChapter.id,
-            chapterNumber: Number(activeChapter.chapterNumber),
-            pageNumber: Number(pageRows[activePageIndex + 1].pageNumber),
-          }
-        : nextChapter && Number(nextChapter.pageCount) > 0
-          ? {
-              chapterId: nextChapter.id,
-              chapterNumber: Number(nextChapter.chapterNumber),
-              pageNumber: 1,
-            }
-          : null;
-
-    const buildRoute = (target) =>
-      target
-        ? `/read/manga/${encodeURIComponent(book.slug)}/${target.chapterNumber}/${target.pageNumber}/`
-        : null;
-
     return successResponse(res, 'Halaman reader berhasil dimuat.', {
       book: {
         id: book.id,
@@ -174,27 +129,6 @@ router.get('/manga/:slug/:chapter/:page', async (req, res) => {
         id: activePage.id,
         pageNumber: Number(activePage.pageNumber),
         imageUrl: addCacheBuster(activePage.imageUrl, activePage.id),
-      },
-      pager: {
-        current: {
-          chapterNumber: Number(activeChapter.chapterNumber),
-          pageNumber: Number(activePage.pageNumber),
-          totalPages: Number(activeChapter.pageCount || pageRows.length),
-        },
-        previous: previousPage
-          ? {
-              chapterNumber: previousPage.chapterNumber,
-              pageNumber: previousPage.pageNumber,
-              href: buildRoute(previousPage),
-            }
-          : null,
-        next: nextPage
-          ? {
-              chapterNumber: nextPage.chapterNumber,
-              pageNumber: nextPage.pageNumber,
-              href: buildRoute(nextPage),
-            }
-          : null,
       },
       chapters: chapterRows.map((chapter) => ({
         id: chapter.id,

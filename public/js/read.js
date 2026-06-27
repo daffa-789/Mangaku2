@@ -96,7 +96,7 @@ function updateReaderHeader(data) {
   const bookTitle = document.getElementById("readerBookTitle");
 
   if (bookTitle) {
-    bookTitle.textContent = escapeHtml(data.book.title);
+    bookTitle.textContent = data.book.title;
   }
 }
 

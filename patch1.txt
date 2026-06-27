@@ -1,6 +1,0 @@
-*** Begin Patch
-*** Update File: public/home.html
-@@ -5,1 +5,1 @@
--    <title>Otaku Shelf | Manga Admin</title>
-+    <title>Mangaku | Manga Admin</title>
-*** End Patch

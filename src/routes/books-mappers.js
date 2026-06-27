@@ -1,15 +1,12 @@
 import { parseGenreList } from './books-validation.js';
-
-function addCacheBuster(url, version) {
-  if (!url) return url;
-  const separator = String(url).includes('?') ? '&' : '?';
-  return `${url}${separator}v=${encodeURIComponent(String(version || '0'))}`;
-}
+import { addCacheBuster } from '../utils/url.js';
 
 function mapBookRow(row = {}) {
+  // Field yang di-SELECT & dipetakan di sini HARUS sinkron dengan pemakaian UI
+  // (dashboard.js). Field mati seperti panelCount/favoriteCount/totalReads*/createdBy*
+  // sudah dihapus dari SELECT di books.js agar query lebih ringan.
   return {
     id: row.id,
-    displayOrder: Number(row.displayOrder || 0),
     title: row.title,
     slug: row.slug,
     author: row.author,
@@ -19,21 +16,9 @@ function mapBookRow(row = {}) {
     publishedOn: row.publishedOn || null,
     status: row.status || 'to_read',
     isFavorite: Boolean(Number(row.isFavorite || 0)),
-    favoriteCount: Number(row.favoriteCount || 0),
     chapterCount: Number(row.chapterCount || 0),
-    panelCount: Number(row.panelCount || 0),
     firstChapterNumber:
       row.firstChapterNumber === null ? null : Number(row.firstChapterNumber),
-    latestChapterNumber:
-      row.latestChapterNumber === null ? null : Number(row.latestChapterNumber),
-    createdByUserId:
-      row.createdByUserId === null ? null : Number(row.createdByUserId),
-    createdByEmail: row.createdByEmail || null,
-    createdByRole: row.createdByRole || null,
-    totalReads: Number(row.totalReads || 0),
-    totalReadSeconds: Number(row.totalReadSeconds || 0),
-    lastReadAt: row.lastReadAt || null,
-    createdAt: row.createdAt || null,
     updatedAt: row.updatedAt || null,
   };
 }

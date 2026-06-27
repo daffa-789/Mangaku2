@@ -176,18 +176,6 @@
     return `${remainingSeconds}s`;
   }
 
-  function formatCompactDuration(seconds) {
-    const safeSeconds = Math.max(0, Number(seconds || 0));
-    const hours = Math.floor(safeSeconds / 3600);
-    const minutes = Math.floor((safeSeconds % 3600) / 60);
-
-    if (hours > 0) {
-      return `${hours}j ${minutes}m`;
-    }
-
-    return `${minutes || 0}m`;
-  }
-
   async function parseJsonResponse(response) {
     try {
       return await response.json();
@@ -262,7 +250,6 @@
     formatDate,
     formatDateTime,
     formatDuration,
-    formatCompactDuration,
     parseJsonResponse,
     buildAuthHeaders,
     showFeedback,

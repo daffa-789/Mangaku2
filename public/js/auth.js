@@ -62,10 +62,6 @@ function guardPageAccess() {
   return true;
 }
 
-function normalizeEmail(value) {
-  return window.MangakuCore.normalizeEmail(value);
-}
-
 async function setFeedback(message, variant = "info") {
   return window.MangakuCore.showFeedback(message, variant);
 }
@@ -131,7 +127,7 @@ function attachRegisterForm() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const email = normalizeEmail(form.email.value);
+    const email = window.MangakuCore.normalizeEmail(form.email.value);
     const password = String(form.password.value || "");
     const validationError = validateCredentials(email, password);
 
@@ -180,7 +176,7 @@ function attachLoginForm() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const email = normalizeEmail(form.email.value);
+    const email = window.MangakuCore.normalizeEmail(form.email.value);
     const password = String(form.password.value || "");
     const validationError = validateCredentials(email, password);
 

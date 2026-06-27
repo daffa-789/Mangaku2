@@ -105,6 +105,3 @@ class SimpleCache {
 
 // Export singleton instance
 export const cache = new SimpleCache();
-
-// Export class for testing purposes
-export { SimpleCache, CacheEntry };

@@ -31,6 +31,17 @@ function hasMinimumRole(userRole, minimumRole) {
   );
 }
 
+// Memvalidasi role mentah TANPA coercion (normalizeRole() memaksa invalid -> "user").
+// Dipakai untuk menolak input role yang tidak dikenal pada endpoint mutasi role.
+function isValidRole(value) {
+  return Object.prototype.hasOwnProperty.call(
+    ROLE_ORDER,
+    String(value || '')
+      .trim()
+      .toLowerCase(),
+  );
+}
+
 function createAuthToken(user) {
   return jwt.sign(
     {
@@ -182,10 +193,10 @@ function buildAuthUserPayload(user) {
 }
 
 export {
-  ROLE_ORDER,
   normalizeEmail,
   normalizeRole,
   hasMinimumRole,
+  isValidRole,
   createAuthToken,
   getRequestUserId,
   getUserById,

@@ -13,13 +13,15 @@ function sanitizeFolderName(mangaTitle) {
   return slugifyTitle(mangaTitle);
 }
 
+const MAX_SLUG_ATTEMPTS = 50;
+
 async function buildUniqueSlug(connection, title, options = {}) {
   const { excludeBookId = null } = options;
   const baseSlug = slugifyTitle(title);
   let attempt = 1;
   let slug = baseSlug;
 
-  while (true) {
+  while (attempt <= MAX_SLUG_ATTEMPTS) {
     const params = [slug];
     let sql = 'SELECT id FROM books WHERE slug = ? LIMIT 1';
 
@@ -37,6 +39,9 @@ async function buildUniqueSlug(connection, title, options = {}) {
     attempt += 1;
     slug = `${baseSlug}-${attempt}`;
   }
+
+  // Fallback unik terakhir: pakai suffix timestamp agar dijamin tidak bentrok.
+  return `${baseSlug}-${Date.now()}`;
 }
 
 function sortPagesByNumber(pages = []) {

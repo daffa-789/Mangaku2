@@ -22,27 +22,7 @@
     });
   }
 
-  function showSuccess(text, title = "Berhasil") {
-    return showFeedback({
-      icon: "success",
-      title,
-      text,
-      timer: 3000,
-      timerProgressBar: true,
-    });
-  }
-
-  function showError(text, title = "Gagal") {
-    return showFeedback({
-      icon: "error",
-      title,
-      text,
-    });
-  }
-
   window.MangakuAlerts = {
     showFeedback,
-    showSuccess,
-    showError,
   };
 })();

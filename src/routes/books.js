@@ -26,6 +26,13 @@ import {
 } from "./books-validation.js";
 import { mapBookRow, mapChapterRow, mapPageRow } from "./books-mappers.js";
 import { cache } from "../utils/cache.js";
+import {
+  successResponse,
+  errorResponse,
+  notFoundResponse,
+  serverErrorResponse,
+  parsePositiveInteger,
+} from "../utils/response.js";
 
 const router = express.Router();
 
@@ -39,7 +46,6 @@ const MAX_PAGE_IMAGE_SIZE = 8 * 1024 * 1024;
 const MAX_CHAPTER_PAGES = 200;
 const MIN_READING_SECONDS = 5;
 const MAX_READING_SECONDS = 24 * 60 * 60;
-const CURRENT_YEAR = new Date().getFullYear();
 const ALLOWED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -48,12 +54,9 @@ const ALLOWED_IMAGE_TYPES = new Set([
 ]);
 
 const publicUploadDir = path.join(__dirname, "..", "..", "public", "uploads");
-fs.mkdirSync(publicUploadDir, { recursive: true });
 
-function parsePositiveInteger(rawValue) {
-  const parsed = Number.parseInt(String(rawValue || ""), 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
+/** Pastikan folder upload ada. Dipanggil saat server start (books.js di-import). */
+fs.mkdirSync(publicUploadDir, { recursive: true });
 
 function createStorage(mangaTitle, fileType, chapterNumber = null) {
   const safeMangaFolder = sanitizeFolderName(mangaTitle);
@@ -274,17 +277,25 @@ async function getNextBookDisplayOrder(connection) {
   return Number(rows[0]?.nextOrder || 1);
 }
 
+// Rapatkan display_order jadi urutan 1..N dalam satu query UPDATE (menghindari N+1).
+// `id` & angka urutan berasal langsung dari DB, jadi aman di-interpolate.
 async function compactBookDisplayOrder(connection) {
   const [rows] = await connection.query(
     "SELECT id FROM books ORDER BY display_order ASC, id ASC",
   );
 
-  for (let index = 0; index < rows.length; index += 1) {
-    await connection.query("UPDATE books SET display_order = ? WHERE id = ?", [
-      index + 1,
-      rows[index].id,
-    ]);
+  if (rows.length === 0) {
+    return;
   }
+
+  const cases = rows
+    .map((row, index) => `WHEN ${Number(row.id)} THEN ${index + 1}`)
+    .join(" ");
+  const ids = rows.map((row) => Number(row.id)).join(",");
+
+  await connection.query(
+    `UPDATE books SET display_order = CASE id ${cases} END WHERE id IN (${ids})`,
+  );
 }
 
 async function getNextChapterNumber(connection, bookId, options = {}) {
@@ -300,6 +311,20 @@ async function getNextChapterNumber(connection, bookId, options = {}) {
 
   const [rows] = await connection.query(sql, params);
   return Number(rows[0]?.nextNumber || 1);
+}
+
+// Bulk INSERT halaman chapter (menghindari N+1 query per halaman).
+async function bulkInsertChapterPages(connection, chapterId, pages = []) {
+  if (pages.length === 0) return;
+  const values = pages.map((page) => [
+    chapterId,
+    page.pageNumber,
+    page.imageUrl,
+  ]);
+  await connection.query(
+    `INSERT INTO chapter_pages (chapter_id, page_number, image_url) VALUES ?`,
+    [values],
+  );
 }
 
 async function chapterNumberExists(
@@ -365,20 +390,9 @@ function getCacheKeyBooks(userId, options = {}) {
   return `books:${userId}:${type}:page${page}:limit${limit}`;
 }
 
-function getCacheKeyBookDetail(bookId) {
-  return `book:${bookId}:detail`;
-}
-
 function invalidateUserBooksCache(userId) {
   // Invalidate all books cache for this user
   cache.invalidatePattern(`books:${userId}:.*`);
-  cache.invalidatePattern(`book:.*:detail`);
-}
-
-function invalidateBookCache(bookId) {
-  cache.delete(`book:${bookId}:detail`);
-  // Also invalidate all user books caches since book details changed
-  cache.invalidatePattern(`books:.*`);
 }
 
 // ============ Pagination Helper Functions ============
@@ -417,7 +431,6 @@ async function fetchBooksWithPagination(
   const safeLimit = Math.min(Math.max(1, limit), PAGINATION_MAX_LIMIT);
   const offset = (safePage - 1) * safeLimit;
 
-  const params = [currentUserId, currentUserId];
   let favoriteClause = "";
 
   if (favoritesOnly) {
@@ -436,10 +449,11 @@ async function fetchBooksWithPagination(
   const totalBooks = countRows[0]?.total || 0;
   const totalPages = Math.ceil(totalBooks / safeLimit);
 
-  // Get paginated books
+  // Get paginated books — hanya field yang dipakai UI (chapterCount, firstChapterNumber).
+  // Subquery favoriteCount/reading_sessions & kolom displayOrder/createdBy*/panelCount
+  // sudah dihapus agar query lebih ringan (lihat AUDIT 4.8 & 6.5).
   const [rows] = await connection.query(
     `SELECT b.id,
-            b.display_order AS displayOrder,
             b.title,
             b.slug,
             b.author,
@@ -448,51 +462,24 @@ async function fetchBooksWithPagination(
             b.description,
             b.published_on AS publishedOn,
             b.status,
-            b.user_id AS createdByUserId,
-            owner.email AS createdByEmail,
-            owner.role AS createdByRole,
-            b.created_at AS createdAt,
             b.updated_at AS updatedAt,
             COALESCE(cs.chapterCount, 0) AS chapterCount,
-            COALESCE(cs.panelCount, 0) AS panelCount,
             cs.firstChapterNumber,
-            cs.latestChapterNumber,
-            CASE WHEN uf.user_id IS NULL THEN 0 ELSE 1 END AS isFavorite,
-            COALESCE(fc.favoriteCount, 0) AS favoriteCount,
-            COALESCE(rs.totalReads, 0) AS totalReads,
-            COALESCE(rs.totalReadSeconds, 0) AS totalReadSeconds,
-            rs.lastReadAt
+            CASE WHEN uf.user_id IS NULL THEN 0 ELSE 1 END AS isFavorite
      FROM books b
-     LEFT JOIN users owner ON owner.id = b.user_id
      LEFT JOIN (
        SELECT book_id,
               COUNT(*) AS chapterCount,
-              COALESCE(SUM(page_count), 0) AS panelCount,
-              MIN(chapter_number) AS firstChapterNumber,
-              MAX(chapter_number) AS latestChapterNumber
+              MIN(chapter_number) AS firstChapterNumber
        FROM chapters
        GROUP BY book_id
      ) cs ON cs.book_id = b.id
      LEFT JOIN user_favorites uf
        ON uf.book_id = b.id AND uf.user_id = ?
-     LEFT JOIN (
-       SELECT book_id, COUNT(*) AS favoriteCount
-       FROM user_favorites
-       GROUP BY book_id
-     ) fc ON fc.book_id = b.id
-     LEFT JOIN (
-       SELECT book_id,
-              COUNT(*) AS totalReads,
-              COALESCE(SUM(duration_seconds), 0) AS totalReadSeconds,
-              MAX(created_at) AS lastReadAt
-       FROM reading_sessions
-       WHERE user_id = ?
-       GROUP BY book_id
-     ) rs ON rs.book_id = b.id
      ${favoriteClause}
-     ORDER BY b.updated_at DESC, b.display_order ASC, b.id DESC
+     ORDER BY b.updated_at DESC, b.id DESC
      LIMIT ? OFFSET ?`,
-    [...params, safeLimit, offset],
+    [currentUserId, safeLimit, offset],
   );
 
   const books = rows.map(mapBookRow);
@@ -521,79 +508,9 @@ async function fetchBooksWithPagination(
   return result;
 }
 
-async function fetchBooks(connection, currentUserId, options = {}) {
-  const { favoritesOnly = false } = options;
-  const params = [currentUserId, currentUserId];
-  let favoriteClause = "";
-
-  if (favoritesOnly) {
-    favoriteClause = "WHERE uf.user_id IS NOT NULL";
-  }
-
-  const [rows] = await connection.query(
-    `SELECT b.id,
-            b.display_order AS displayOrder,
-            b.title,
-            b.slug,
-            b.author,
-            b.genre,
-            b.thumbnail_url AS thumbnailUrl,
-            b.description,
-            b.published_on AS publishedOn,
-            b.status,
-            b.user_id AS createdByUserId,
-            owner.email AS createdByEmail,
-            owner.role AS createdByRole,
-            b.created_at AS createdAt,
-            b.updated_at AS updatedAt,
-            COALESCE(cs.chapterCount, 0) AS chapterCount,
-            COALESCE(cs.panelCount, 0) AS panelCount,
-            cs.firstChapterNumber,
-            cs.latestChapterNumber,
-            CASE WHEN uf.user_id IS NULL THEN 0 ELSE 1 END AS isFavorite,
-            COALESCE(fc.favoriteCount, 0) AS favoriteCount,
-            COALESCE(rs.totalReads, 0) AS totalReads,
-            COALESCE(rs.totalReadSeconds, 0) AS totalReadSeconds,
-            rs.lastReadAt
-     FROM books b
-     LEFT JOIN users owner ON owner.id = b.user_id
-     LEFT JOIN (
-       SELECT book_id,
-              COUNT(*) AS chapterCount,
-              COALESCE(SUM(page_count), 0) AS panelCount,
-              MIN(chapter_number) AS firstChapterNumber,
-              MAX(chapter_number) AS latestChapterNumber
-       FROM chapters
-       GROUP BY book_id
-     ) cs ON cs.book_id = b.id
-     LEFT JOIN user_favorites uf
-       ON uf.book_id = b.id AND uf.user_id = ?
-     LEFT JOIN (
-       SELECT book_id, COUNT(*) AS favoriteCount
-       FROM user_favorites
-       GROUP BY book_id
-     ) fc ON fc.book_id = b.id
-     LEFT JOIN (
-       SELECT book_id,
-              COUNT(*) AS totalReads,
-              COALESCE(SUM(duration_seconds), 0) AS totalReadSeconds,
-              MAX(created_at) AS lastReadAt
-       FROM reading_sessions
-       WHERE user_id = ?
-       GROUP BY book_id
-     ) rs ON rs.book_id = b.id
-     ${favoriteClause}
-     ORDER BY b.updated_at DESC, b.display_order ASC, b.id DESC`,
-    params,
-  );
-
-  return rows.map(mapBookRow);
-}
-
 async function fetchBookById(connection, currentUserId, bookId) {
   const [rows] = await connection.query(
     `SELECT b.id,
-            b.display_order AS displayOrder,
             b.title,
             b.slug,
             b.author,
@@ -602,50 +519,23 @@ async function fetchBookById(connection, currentUserId, bookId) {
             b.description,
             b.published_on AS publishedOn,
             b.status,
-            b.user_id AS createdByUserId,
-            owner.email AS createdByEmail,
-            owner.role AS createdByRole,
-            b.created_at AS createdAt,
             b.updated_at AS updatedAt,
             COALESCE(cs.chapterCount, 0) AS chapterCount,
-            COALESCE(cs.panelCount, 0) AS panelCount,
             cs.firstChapterNumber,
-            cs.latestChapterNumber,
-            CASE WHEN uf.user_id IS NULL THEN 0 ELSE 1 END AS isFavorite,
-            COALESCE(fc.favoriteCount, 0) AS favoriteCount,
-            COALESCE(rs.totalReads, 0) AS totalReads,
-            COALESCE(rs.totalReadSeconds, 0) AS totalReadSeconds,
-            rs.lastReadAt
+            CASE WHEN uf.user_id IS NULL THEN 0 ELSE 1 END AS isFavorite
      FROM books b
-     LEFT JOIN users owner ON owner.id = b.user_id
      LEFT JOIN (
        SELECT book_id,
               COUNT(*) AS chapterCount,
-              COALESCE(SUM(page_count), 0) AS panelCount,
-              MIN(chapter_number) AS firstChapterNumber,
-              MAX(chapter_number) AS latestChapterNumber
+              MIN(chapter_number) AS firstChapterNumber
        FROM chapters
        GROUP BY book_id
      ) cs ON cs.book_id = b.id
      LEFT JOIN user_favorites uf
        ON uf.book_id = b.id AND uf.user_id = ?
-     LEFT JOIN (
-       SELECT book_id, COUNT(*) AS favoriteCount
-       FROM user_favorites
-       GROUP BY book_id
-     ) fc ON fc.book_id = b.id
-     LEFT JOIN (
-       SELECT book_id,
-              COUNT(*) AS totalReads,
-              COALESCE(SUM(duration_seconds), 0) AS totalReadSeconds,
-              MAX(created_at) AS lastReadAt
-       FROM reading_sessions
-       WHERE user_id = ?
-       GROUP BY book_id
-     ) rs ON rs.book_id = b.id
      WHERE b.id = ?
      LIMIT 1`,
-    [currentUserId, currentUserId, bookId],
+    [currentUserId, bookId],
   );
 
   if (!rows[0]) {
@@ -713,22 +603,7 @@ async function fetchChapterById(connection, bookId, chapterId) {
 
 function requireCatalogManager(req, res) {
   if (!hasMinimumRole(req.user?.role, "admin")) {
-    res.status(403).json({
-      status: "error",
-      message: "Akses admin atau super admin diperlukan.",
-    });
-    return false;
-  }
-
-  return true;
-}
-
-function requireAdmin(req, res) {
-  if (!hasMinimumRole(req.user?.role, "admin")) {
-    res.status(403).json({
-      status: "error",
-      message: "Akses admin atau super admin diperlukan.",
-    });
+    errorResponse(res, "Akses admin atau super admin diperlukan.", 403);
     return false;
   }
 
@@ -740,20 +615,14 @@ router.use(async (req, res, next) => {
     const { user, error } = await resolveRequestUser(pool, req);
 
     if (error) {
-      return res.status(error.status).json({
-        status: "error",
-        message: error.message,
-      });
+      return errorResponse(res, error.message, error.status);
     }
 
     req.user = user;
     return next();
   } catch (error) {
     console.error("Books auth check error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -780,10 +649,7 @@ router.get("/", async (req, res) => {
     });
   } catch (error) {
     console.error("Books list error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -810,10 +676,7 @@ router.get("/favorites", async (req, res) => {
     });
   } catch (error) {
     console.error("Favorites error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -859,35 +722,29 @@ router.get("/stats", async (req, res) => {
        FROM users`,
     );
 
-    return res.status(200).json({
-      status: "success",
-      data: {
-        catalog: {
-          totalBooks: Number(catalogTotals.totalBooks || 0),
-          totalChapters: Number(chapterTotals.totalChapters || 0),
-          totalPanels: Number(chapterTotals.totalPanels || 0),
-          totalFavorites: Number(favoriteTotals.totalFavorites || 0),
-        },
-        audience: {
-          totalUsers: Number(roleTotals.totalUsers || 0),
-          totalSuperAdmins: Number(roleTotals.totalSuperAdmins || 0),
-          totalAdmins: Number(roleTotals.totalAdmins || 0),
-          totalReaders: Number(roleTotals.totalReaders || 0),
-        },
-        viewer: {
-          totalFavorites: Number(viewerFavorites.totalFavorites || 0),
-          totalReads: Number(viewerReads.totalReads || 0),
-          totalReadSeconds: Number(viewerReads.totalReadSeconds || 0),
-          lastReadAt: viewerReads.lastReadAt || null,
-        },
+    return successResponse(res, null, {
+      catalog: {
+        totalBooks: Number(catalogTotals.totalBooks || 0),
+        totalChapters: Number(chapterTotals.totalChapters || 0),
+        totalPanels: Number(chapterTotals.totalPanels || 0),
+        totalFavorites: Number(favoriteTotals.totalFavorites || 0),
+      },
+      audience: {
+        totalUsers: Number(roleTotals.totalUsers || 0),
+        totalSuperAdmins: Number(roleTotals.totalSuperAdmins || 0),
+        totalAdmins: Number(roleTotals.totalAdmins || 0),
+        totalReaders: Number(roleTotals.totalReaders || 0),
+      },
+      viewer: {
+        totalFavorites: Number(viewerFavorites.totalFavorites || 0),
+        totalReads: Number(viewerReads.totalReads || 0),
+        totalReadSeconds: Number(viewerReads.totalReadSeconds || 0),
+        lastReadAt: viewerReads.lastReadAt || null,
       },
     });
   } catch (error) {
     console.error("Stats error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -899,10 +756,7 @@ router.post("/upload-thumbnail", (req, res) => {
   const mangaTitle = String(req.query.title || req.body.title || "").trim();
 
   if (!mangaTitle) {
-    return res.status(400).json({
-      status: "error",
-      message: "Judul manga wajib dikirimkan untuk upload thumbnail.",
-    });
+    return errorResponse(res, "Judul manga wajib dikirimkan untuk upload thumbnail.");
   }
 
   const upload = createUploadMiddleware("thumbnail", {
@@ -912,32 +766,24 @@ router.post("/upload-thumbnail", (req, res) => {
   upload.single("thumbnail")(req, res, (error) => {
     if (error) {
       if (error.code === "LIMIT_FILE_SIZE") {
-        return res.status(400).json({
-          status: "error",
-          message: "Ukuran thumbnail maksimal 10MB.",
-        });
+        return errorResponse(res, "Ukuran thumbnail maksimal 10MB.");
       }
 
-      return res.status(400).json({
-        status: "error",
-        message: error.message || "Upload thumbnail gagal.",
-      });
+      return errorResponse(res, error.message || "Upload thumbnail gagal.");
     }
 
     if (!req.file) {
-      return res.status(400).json({
-        status: "error",
-        message: "File thumbnail wajib dipilih.",
-      });
+      return errorResponse(res, "File thumbnail wajib dipilih.");
     }
 
-    return res.status(201).json({
-      status: "success",
-      message: "Thumbnail berhasil diunggah.",
-      data: {
+    return successResponse(
+      res,
+      "Thumbnail berhasil diunggah.",
+      {
         thumbnailUrl: `/uploads/${sanitizeFolderName(mangaTitle)}/books/${req.file.filename}`,
       },
-    });
+      201,
+    );
   });
 });
 
@@ -949,14 +795,11 @@ router.post("/", async (req, res) => {
   const payload = normalizeBookPayload(req.body);
   const validationError = validateBookPayload(payload, {
     bookStatuses: BOOK_STATUSES,
-    currentYear: CURRENT_YEAR,
+    currentYear: new Date().getFullYear(),
   });
 
   if (validationError) {
-    return res.status(400).json({
-      status: "error",
-      message: validationError,
-    });
+    return errorResponse(res, validationError);
   }
 
   const connection = await pool.getConnection();
@@ -1002,11 +845,7 @@ router.post("/", async (req, res) => {
 
     const book = await fetchBookById(pool, req.user.id, result.insertId);
 
-    return res.status(201).json({
-      status: "success",
-      message: "Manga berhasil ditambahkan.",
-      data: book,
-    });
+    return successResponse(res, "Manga berhasil ditambahkan.", book, 201);
   } catch (error) {
     await connection.rollback();
     // Cleanup uploaded thumbnail if book creation failed
@@ -1014,10 +853,7 @@ router.post("/", async (req, res) => {
       deleteManagedFiles([payload.thumbnailUrl]);
     }
     console.error("Create manga error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   } finally {
     connection.release();
   }
@@ -1032,33 +868,20 @@ router.get("/:id/chapters/:chapterId", async (req, res) => {
   const chapterId = parsePositiveInteger(req.params.chapterId);
 
   if (!bookId || !chapterId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga atau chapter tidak valid.",
-    });
+    return errorResponse(res, "ID manga atau chapter tidak valid.");
   }
 
   try {
     const chapter = await fetchChapterById(pool, bookId, chapterId);
 
     if (!chapter) {
-      return res.status(404).json({
-        status: "error",
-        message: "Chapter tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Chapter tidak ditemukan.");
     }
 
-    return res.status(200).json({
-      status: "success",
-      message: "Detail chapter berhasil dimuat.",
-      data: chapter,
-    });
+    return successResponse(res, "Detail chapter berhasil dimuat.", chapter);
   } catch (error) {
     console.error("Chapter detail error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -1070,20 +893,14 @@ router.post("/:id/chapters", async (req, res) => {
   const bookId = parsePositiveInteger(req.params.id);
 
   if (!bookId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga tidak valid.",
-    });
+    return errorResponse(res, "ID manga tidak valid.");
   }
 
   try {
     const book = await getBookById(pool, bookId);
 
     if (!book) {
-      return res.status(404).json({
-        status: "error",
-        message: "Manga tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Manga tidak ditemukan.");
     }
 
     const upload = createUploadMiddleware("page", {
@@ -1093,16 +910,10 @@ router.post("/:id/chapters", async (req, res) => {
     upload.any()(req, res, async (error) => {
       if (error) {
         if (error.code === "LIMIT_FILE_SIZE") {
-          return res.status(400).json({
-            status: "error",
-            message: "Ukuran gambar panel maksimal 8MB per file.",
-          });
+          return errorResponse(res, "Ukuran gambar panel maksimal 8MB per file.");
         }
 
-        return res.status(400).json({
-          status: "error",
-          message: error.message || "Upload chapter gagal.",
-        });
+        return errorResponse(res, error.message || "Upload chapter gagal.");
       }
 
       const uploadedFiles = Array.isArray(req.files) ? req.files : [];
@@ -1113,10 +924,7 @@ router.post("/:id/chapters", async (req, res) => {
 
       if (validationError) {
         cleanupUploadedFiles(uploadedFiles);
-        return res.status(400).json({
-          status: "error",
-          message: validationError,
-        });
+        return errorResponse(res, validationError);
       }
 
       const { pageFiles, error: pageFilesError } =
@@ -1124,18 +932,12 @@ router.post("/:id/chapters", async (req, res) => {
 
       if (pageFilesError) {
         cleanupUploadedFiles(uploadedFiles);
-        return res.status(400).json({
-          status: "error",
-          message: pageFilesError,
-        });
+        return errorResponse(res, pageFilesError);
       }
 
       if (pageFiles.size !== payload.pageCount) {
         cleanupUploadedFiles(uploadedFiles);
-        return res.status(400).json({
-          status: "error",
-          message: "Semua panel chapter wajib diunggah.",
-        });
+        return errorResponse(res, "Semua panel chapter wajib diunggah.");
       }
 
       const connection = await pool.getConnection();
@@ -1148,10 +950,7 @@ router.post("/:id/chapters", async (req, res) => {
         if (!existingBook) {
           cleanupUploadedFiles(uploadedFiles);
           await connection.rollback();
-          return res.status(404).json({
-            status: "error",
-            message: "Manga tidak ditemukan.",
-          });
+          return notFoundResponse(res, "Manga tidak ditemukan.");
         }
 
         const duplicateNumber = await chapterNumberExists(
@@ -1163,10 +962,7 @@ router.post("/:id/chapters", async (req, res) => {
         if (duplicateNumber) {
           cleanupUploadedFiles(uploadedFiles);
           await connection.rollback();
-          return res.status(409).json({
-            status: "error",
-            message: "Nomor chapter sudah dipakai untuk manga ini.",
-          });
+          return errorResponse(res, "Nomor chapter sudah dipakai untuk manga ini.", 409);
         }
 
         const pagePlan = buildPageSavePlan({
@@ -1180,13 +976,8 @@ router.post("/:id/chapters", async (req, res) => {
         if (pagePlan.error) {
           cleanupUploadedFiles(uploadedFiles);
           await connection.rollback();
-          return res.status(400).json({
-            status: "error",
-            message: pagePlan.error,
-          });
+          return errorResponse(res, pagePlan.error);
         }
-
-        const nextDisplayOrder = await getNextChapterNumber(connection, bookId);
 
         const [chapterResult] = await connection.query(
           `INSERT INTO chapters
@@ -1194,7 +985,7 @@ router.post("/:id/chapters", async (req, res) => {
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             bookId,
-            nextDisplayOrder,
+            payload.chapterNumber,
             payload.chapterNumber,
             String(payload.chapterNumber),
             payload.releaseDate,
@@ -1203,14 +994,11 @@ router.post("/:id/chapters", async (req, res) => {
           ],
         );
 
-        for (const page of pagePlan.finalPages) {
-          await connection.query(
-            `INSERT INTO chapter_pages
-             (chapter_id, page_number, image_url)
-             VALUES (?, ?, ?)`,
-            [chapterResult.insertId, page.pageNumber, page.imageUrl],
-          );
-        }
+        await bulkInsertChapterPages(
+          connection,
+          chapterResult.insertId,
+          pagePlan.finalPages,
+        );
 
         await logActivity(
           connection,
@@ -1231,29 +1019,19 @@ router.post("/:id/chapters", async (req, res) => {
           chapterResult.insertId,
         );
 
-        return res.status(201).json({
-          status: "success",
-          message: "Chapter berhasil ditambahkan.",
-          data: chapter,
-        });
+        return successResponse(res, "Chapter berhasil ditambahkan.", chapter, 201);
       } catch (createError) {
         cleanupUploadedFiles(uploadedFiles);
         await connection.rollback();
         console.error("Create chapter error:", createError.message);
-        return res.status(500).json({
-          status: "error",
-          message: "Terjadi kesalahan pada server.",
-        });
+        return serverErrorResponse(res, createError);
       } finally {
         connection.release();
       }
     });
   } catch (error) {
     console.error("Chapter POST error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -1266,20 +1044,14 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
   const chapterId = parsePositiveInteger(req.params.chapterId);
 
   if (!bookId || !chapterId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga atau chapter tidak valid.",
-    });
+    return errorResponse(res, "ID manga atau chapter tidak valid.");
   }
 
   try {
     const book = await getBookById(pool, bookId);
 
     if (!book) {
-      return res.status(404).json({
-        status: "error",
-        message: "Manga tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Manga tidak ditemukan.");
     }
 
     const upload = createUploadMiddleware("page", {
@@ -1289,16 +1061,10 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
     upload.any()(req, res, async (error) => {
       if (error) {
         if (error.code === "LIMIT_FILE_SIZE") {
-          return res.status(400).json({
-            status: "error",
-            message: "Ukuran gambar panel maksimal 8MB per file.",
-          });
+          return errorResponse(res, "Ukuran gambar panel maksimal 8MB per file.");
         }
 
-        return res.status(400).json({
-          status: "error",
-          message: error.message || "Update chapter gagal.",
-        });
+        return errorResponse(res, error.message || "Update chapter gagal.");
       }
 
       const uploadedFiles = Array.isArray(req.files) ? req.files : [];
@@ -1309,10 +1075,7 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
 
       if (validationError) {
         cleanupUploadedFiles(uploadedFiles);
-        return res.status(400).json({
-          status: "error",
-          message: validationError,
-        });
+        return errorResponse(res, validationError);
       }
 
       const { pageFiles, error: pageFilesError } =
@@ -1320,10 +1083,7 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
 
       if (pageFilesError) {
         cleanupUploadedFiles(uploadedFiles);
-        return res.status(400).json({
-          status: "error",
-          message: pageFilesError,
-        });
+        return errorResponse(res, pageFilesError);
       }
 
       const connection = await pool.getConnection();
@@ -1341,10 +1101,7 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
         if (!existingBook || !existingChapter) {
           cleanupUploadedFiles(uploadedFiles);
           await connection.rollback();
-          return res.status(404).json({
-            status: "error",
-            message: "Chapter tidak ditemukan.",
-          });
+          return notFoundResponse(res, "Chapter tidak ditemukan.");
         }
 
         const duplicateNumber = await chapterNumberExists(
@@ -1357,10 +1114,7 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
         if (duplicateNumber) {
           cleanupUploadedFiles(uploadedFiles);
           await connection.rollback();
-          return res.status(409).json({
-            status: "error",
-            message: "Nomor chapter sudah dipakai untuk manga ini.",
-          });
+          return errorResponse(res, "Nomor chapter sudah dipakai untuk manga ini.", 409);
         }
 
         const [existingPageRows] = await connection.query(
@@ -1389,10 +1143,7 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
         if (pagePlan.error) {
           cleanupUploadedFiles(uploadedFiles);
           await connection.rollback();
-          return res.status(400).json({
-            status: "error",
-            message: pagePlan.error,
-          });
+          return errorResponse(res, pagePlan.error);
         }
 
         await connection.query(
@@ -1400,14 +1151,11 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
           [chapterId],
         );
 
-        for (const page of pagePlan.finalPages) {
-          await connection.query(
-            `INSERT INTO chapter_pages
-             (chapter_id, page_number, image_url)
-             VALUES (?, ?, ?)`,
-            [chapterId, page.pageNumber, page.imageUrl],
-          );
-        }
+        await bulkInsertChapterPages(
+          connection,
+          chapterId,
+          pagePlan.finalPages,
+        );
 
         await connection.query(
           `UPDATE chapters
@@ -1445,29 +1193,19 @@ router.put("/:id/chapters/:chapterId", async (req, res) => {
 
         const chapter = await fetchChapterById(pool, bookId, chapterId);
 
-        return res.status(200).json({
-          status: "success",
-          message: "Chapter berhasil diperbarui.",
-          data: chapter,
-        });
+        return successResponse(res, "Chapter berhasil diperbarui.", chapter);
       } catch (updateError) {
         cleanupUploadedFiles(uploadedFiles);
         await connection.rollback();
         console.error("Update chapter error:", updateError.message);
-        return res.status(500).json({
-          status: "error",
-          message: "Terjadi kesalahan pada server.",
-        });
+        return serverErrorResponse(res, updateError);
       } finally {
         connection.release();
       }
     });
   } catch (error) {
     console.error("Chapter PUT error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -1480,10 +1218,7 @@ router.delete("/:id/chapters/:chapterId", async (req, res) => {
   const chapterId = parsePositiveInteger(req.params.chapterId);
 
   if (!bookId || !chapterId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga atau chapter tidak valid.",
-    });
+    return errorResponse(res, "ID manga atau chapter tidak valid.");
   }
 
   const connection = await pool.getConnection();
@@ -1496,10 +1231,7 @@ router.delete("/:id/chapters/:chapterId", async (req, res) => {
 
     if (!book || !chapter) {
       await connection.rollback();
-      return res.status(404).json({
-        status: "error",
-        message: "Chapter tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Chapter tidak ditemukan.");
     }
 
     const [pageRows] = await connection.query(
@@ -1527,17 +1259,11 @@ router.delete("/:id/chapters/:chapterId", async (req, res) => {
     invalidateUserBooksCache(req.user.id);
     deleteManagedFiles(pageRows.map((row) => row.imageUrl));
 
-    return res.status(200).json({
-      status: "success",
-      message: "Chapter berhasil dihapus.",
-    });
+    return successResponse(res, "Chapter berhasil dihapus.");
   } catch (error) {
     await connection.rollback();
     console.error("Delete chapter error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   } finally {
     connection.release();
   }
@@ -1547,10 +1273,7 @@ router.post("/:id/favorite", async (req, res) => {
   const bookId = parsePositiveInteger(req.params.id);
 
   if (!bookId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga tidak valid.",
-    });
+    return errorResponse(res, "ID manga tidak valid.");
   }
 
   const isFavorite = normalizeBoolean(req.body.isFavorite);
@@ -1559,10 +1282,7 @@ router.post("/:id/favorite", async (req, res) => {
     const existingBook = await getBookById(pool, bookId);
 
     if (!existingBook) {
-      return res.status(404).json({
-        status: "error",
-        message: "Manga tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Manga tidak ditemukan.");
     }
 
     if (isFavorite) {
@@ -1592,19 +1312,14 @@ router.post("/:id/favorite", async (req, res) => {
 
     const book = await fetchBookById(pool, req.user.id, bookId);
 
-    return res.status(200).json({
-      status: "success",
-      message: isFavorite
-        ? "Manga ditambahkan ke favorit."
-        : "Manga dihapus dari favorit.",
-      data: book,
-    });
+    return successResponse(
+      res,
+      isFavorite ? "Manga ditambahkan ke favorit." : "Manga dihapus dari favorit.",
+      book,
+    );
   } catch (error) {
     console.error("Favorite toggle error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -1616,10 +1331,7 @@ router.post("/:id/reading-sessions", async (req, res) => {
   const durationSeconds = normalizeOptionalInteger(req.body.durationSeconds);
 
   if (!bookId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga tidak valid.",
-    });
+    return errorResponse(res, "ID manga tidak valid.");
   }
 
   if (
@@ -1627,10 +1339,7 @@ router.post("/:id/reading-sessions", async (req, res) => {
     durationSeconds < MIN_READING_SECONDS ||
     durationSeconds > MAX_READING_SECONDS
   ) {
-    return res.status(400).json({
-      status: "error",
-      message: "Durasi baca tidak valid.",
-    });
+    return errorResponse(res, "Durasi baca tidak valid.");
   }
 
   const connection = await pool.getConnection();
@@ -1639,20 +1348,14 @@ router.post("/:id/reading-sessions", async (req, res) => {
     const book = await getBookById(connection, bookId);
 
     if (!book) {
-      return res.status(404).json({
-        status: "error",
-        message: "Manga tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Manga tidak ditemukan.");
     }
 
     if (chapterId) {
       const chapter = await getChapterOwnership(connection, bookId, chapterId);
 
       if (!chapter) {
-        return res.status(404).json({
-          status: "error",
-          message: "Chapter tidak ditemukan.",
-        });
+        return notFoundResponse(res, "Chapter tidak ditemukan.");
       }
     }
 
@@ -1663,16 +1366,10 @@ router.post("/:id/reading-sessions", async (req, res) => {
       [req.user.id, bookId, chapterId, durationSeconds],
     );
 
-    return res.status(201).json({
-      status: "success",
-      message: "Waktu baca berhasil dicatat.",
-    });
+    return successResponse(res, "Waktu baca berhasil dicatat.", null, 201);
   } catch (error) {
     console.error("Reading session error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   } finally {
     connection.release();
   }
@@ -1682,33 +1379,20 @@ router.get("/:id", async (req, res) => {
   const bookId = parsePositiveInteger(req.params.id);
 
   if (!bookId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga tidak valid.",
-    });
+    return errorResponse(res, "ID manga tidak valid.");
   }
 
   try {
     const book = await fetchBookById(pool, req.user.id, bookId);
 
     if (!book) {
-      return res.status(404).json({
-        status: "error",
-        message: "Manga tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Manga tidak ditemukan.");
     }
 
-    return res.status(200).json({
-      status: "success",
-      message: "Detail manga berhasil dimuat.",
-      data: book,
-    });
+    return successResponse(res, "Detail manga berhasil dimuat.", book);
   } catch (error) {
     console.error("Detail manga error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   }
 });
 
@@ -1758,23 +1442,17 @@ router.put("/:id", async (req, res) => {
   const bookId = parsePositiveInteger(req.params.id);
 
   if (!bookId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga tidak valid.",
-    });
+    return errorResponse(res, "ID manga tidak valid.");
   }
 
   const payload = normalizeBookPayload(req.body);
   const validationError = validateBookPayload(payload, {
     bookStatuses: BOOK_STATUSES,
-    currentYear: CURRENT_YEAR,
+    currentYear: new Date().getFullYear(),
   });
 
   if (validationError) {
-    return res.status(400).json({
-      status: "error",
-      message: validationError,
-    });
+    return errorResponse(res, validationError);
   }
 
   const connection = await pool.getConnection();
@@ -1788,10 +1466,7 @@ router.put("/:id", async (req, res) => {
 
     if (!existingBook) {
       await connection.rollback();
-      return res.status(404).json({
-        status: "error",
-        message: "Manga tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Manga tidak ditemukan.");
     }
 
     const slug = await buildUniqueSlug(connection, payload.title, {
@@ -1900,11 +1575,7 @@ router.put("/:id", async (req, res) => {
 
     const book = await fetchBookById(connection, req.user.id, bookId);
 
-    return res.status(200).json({
-      status: "success",
-      message: "Manga berhasil diperbarui.",
-      data: book,
-    });
+    return successResponse(res, "Manga berhasil diperbarui.", book);
   } catch (error) {
     await connection.rollback();
     // Revert folder rename on failure
@@ -1912,27 +1583,21 @@ router.put("/:id", async (req, res) => {
       renameMangaFolder(payload.title, existingBook.title);
     }
     console.error("Update manga error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   } finally {
     connection.release();
   }
 });
 
 router.delete("/:id", async (req, res) => {
-  if (!requireAdmin(req, res)) {
+  if (!requireCatalogManager(req, res)) {
     return;
   }
 
   const bookId = parsePositiveInteger(req.params.id);
 
   if (!bookId) {
-    return res.status(400).json({
-      status: "error",
-      message: "ID manga tidak valid.",
-    });
+    return errorResponse(res, "ID manga tidak valid.");
   }
 
   const connection = await pool.getConnection();
@@ -1944,10 +1609,7 @@ router.delete("/:id", async (req, res) => {
 
     if (!book) {
       await connection.rollback();
-      return res.status(404).json({
-        status: "error",
-        message: "Manga tidak ditemukan.",
-      });
+      return notFoundResponse(res, "Manga tidak ditemukan.");
     }
 
     const [pageRows] = await connection.query(
@@ -1988,17 +1650,11 @@ router.delete("/:id", async (req, res) => {
 
     invalidateUserBooksCache(req.user.id);
 
-    return res.status(200).json({
-      status: "success",
-      message: "Manga berhasil dihapus.",
-    });
+    return successResponse(res, "Manga berhasil dihapus.");
   } catch (error) {
     await connection.rollback();
     console.error("Delete manga error:", error.message);
-    return res.status(500).json({
-      status: "error",
-      message: "Terjadi kesalahan pada server.",
-    });
+    return serverErrorResponse(res, error);
   } finally {
     connection.release();
   }
