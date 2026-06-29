@@ -1667,6 +1667,59 @@ function attachForms() {
     });
 }
 
+
+function attachSidebarToggle() {
+  const toggleBtn = document.getElementById("sidebarToggle");
+  const sidebar = document.getElementById("dashboardSidebar");
+  const overlay = document.getElementById("sidebarOverlay");
+
+  if (!toggleBtn || !sidebar) {
+    return;
+  }
+
+  function openSidebar() {
+    sidebar.classList.add("is-open");
+    if (overlay) {
+      overlay.classList.add("is-visible");
+    }
+    toggleBtn.setAttribute("aria-expanded", "true");
+  }
+
+  function closeSidebar() {
+    sidebar.classList.remove("is-open");
+    if (overlay) {
+      overlay.classList.remove("is-visible");
+    }
+    toggleBtn.setAttribute("aria-expanded", "false");
+  }
+
+  toggleBtn.addEventListener("click", () => {
+    const isOpen = sidebar.classList.contains("is-open");
+    if (isOpen) {
+      closeSidebar();
+    } else {
+      openSidebar();
+    }
+  });
+
+  if (overlay) {
+    overlay.addEventListener("click", closeSidebar);
+  }
+
+  document.querySelectorAll("[data-nav-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (window.innerWidth <= 768) {
+        closeSidebar();
+      }
+    });
+  });
+
+  document.getElementById("logoutButton")?.addEventListener("click", () => {
+    if (window.innerWidth <= 768) {
+      closeSidebar();
+    }
+  });
+}
 async function initDashboardPage() {
   const pageMarker = document.getElementById("dashboardSidebar");
 
@@ -1696,6 +1749,7 @@ async function initDashboardPage() {
   attachNavigation();
   attachGlobalActions();
   attachForms();
+  attachSidebarToggle();
   setActiveTab(getActiveTabFromHash());
   resetAddMangaForm();
   prepareChapterForm(null);
